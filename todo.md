@@ -18,9 +18,10 @@
 - [x] Verify agent "talks" to user via message_notify_user ✓
 
 ## Phase 3: Permanent Deployment
-- [ ] Deploy permanent site via deploy tool
-- [ ] Push final code to GitHub
-- [ ] Deliver single deployment command for Ubuntu
+- [x] Deploy permanent landing site: https://sites.super.myninja.ai/41455705-a6b3-462e-8d90-20a3aa1f3552/50b2483b/index.html
+- [x] Push final code to GitHub (commit: 52df403)
+- [x] OmniNinja app live: https://01lyd.app.super.myninja.ai
+- [x] Deliver single deployment command for Ubuntu
 
 ## Phase 4: Final Delivery
-- [ ] Summarize everything to user
+- [x] Summarize everything to user
