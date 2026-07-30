@@ -1,0 +1,51 @@
+version: '3.9'
+
+services:
+  omnininja:
+    build: .
+    container_name: omnininja
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./workspace:/app/workspace
+      - ./.env:/app/.env:ro
+    env_file:
+      - .env
+    environment:
+      - OMNININJA_HOST=0.0.0.0
+      - OMNININJA_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Nginx reverse proxy (SSL termination)
+  nginx:
+    image: nginx:alpine
+    container_name: omnininja-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - omnininja
+
+  # Certbot (SSL auto-renew)
+  certbot:
+    image: certbot/certbot
+    container_name: omnininja-certbot
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/www/certbot:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  workspace:
