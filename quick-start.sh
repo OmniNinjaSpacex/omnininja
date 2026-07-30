@@ -45,18 +45,31 @@ fi
 echo ""
 echo "[1/9] Atualizando apt e instalando pacotes de sistema..."
 apt-get update -y
+
+# Tenta instalar libasound2t64 (Ubuntu 24.04), se falhar tenta libasound2 (Ubuntu 22.04)
+install_libasound() {
+  if apt-cache show libasound2t64 >/dev/null 2>&1; then
+    echo "  Ubuntu 24.04 detectado — usando libasound2t64"
+    LIBASOUND=libasound2t64
+    LIBATK=libatk1.0-0t64
+    LIBATKBRIDGE=libatk-bridge2.0-0t64
+    LIBCUPS=libcups2t64
+  else
+    echo "  Ubuntu 22.04 detectado — usando libasound2"
+    LIBASOUND=libasound2
+    LIBATK=libatk1.0-0
+    LIBATKBRIDGE=libatk-bridge2.0-0
+    LIBCUPS=libcups2
+  fi
+}
+install_libasound
+
 apt-get install -y --no-install-recommends \
   curl wget git unzip ca-certificates gnupg build-essential python3 python3-pip \
   jq sqlite3 rsync \
-  libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
+  libnss3 libnspr4 "$LIBATK" "$LIBATKBRIDGE" "$LIBCUPS" libdrm2 libdbus-1-3 \
   libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-  libpango-1.0-0 libcairo2 libasound2 libasound2t64 fonts-liberation xdg-utils 2>/dev/null || \
-apt-get install -y --no-install-recommends \
-  curl wget git unzip ca-certificates gnupg build-essential python3 python3-pip \
-  jq sqlite3 rsync \
-  libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
-  libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-  libpango-1.0-0 libcairo2 libasound2 fonts-liberation xdg-utils
+  libpango-1.0-0 libcairo2 "$LIBASOUND" fonts-liberation xdg-utils
 
 # 2) Node.js 20
 echo ""
