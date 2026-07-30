@@ -2,18 +2,21 @@
 # ============================================================
 # OmniNinja — INSTALAÇÃO COMPLETA COM 1 COMANDO
 #
-# As chaves são passadas por variáveis de ambiente (não vão pro GitHub).
+# As chaves são passadas DIRETAMENTE como argumentos do script.
+# Isso funciona em QUALQUER Ubuntu (não depende de sudo -E).
 #
 # Como usar (Cole tudo isto de uma vez no terminal do Ubuntu):
 #
-#   export KEY_CLAUDE="sk-or-v1-SUA_CHAVE_CLAUDE"
-#   export KEY_CHATGPT="sk-or-v1-SUA_CHAVE_CHATGPT"
-#   export KEY_KIMI="sk-or-v1-SUA_CHAVE_KIMI"
-#   export KEY_GROK="sk-or-v1-SUA_CHAVE_GROK"
-#   export KEY_GEMINI="AQ.SUA_CHAVE_GEMINI"
-#   curl -fsSL https://raw.githubusercontent.com/Vxvjsiwieh82/omnininja/main/install-full.sh | sudo -E bash
+#   curl -fsSL https://raw.githubusercontent.com/Vxvjsiwieh82/omnininja/main/install-full.sh | \
+#     sudo bash -s -- \
+#       --claude "sk-or-v1-SUA_CHAVE" \
+#       --chatgpt "sk-or-v1-SUA_CHAVE" \
+#       --kimi "sk-or-v1-SUA_CHAVE" \
+#       --grok "sk-or-v1-SUA_CHAVE" \
+#       --gemini "AQ.SUA_CHAVE"
 #
-# O -E preserva as variáveis de ambiente (as chaves) dentro do sudo.
+# As chaves NÃO vão para o GitHub — ficam só no seu terminal
+# e depois no .env dentro do Ubuntu.
 # ============================================================
 set -euo pipefail
 
@@ -21,6 +24,26 @@ REPO_URL="https://github.com/Vxvjsiwieh82/omnininja.git"
 INSTALL_DIR="/opt/omnininja"
 SERVICE_USER="omnininja"
 NODE_VERSION="20"
+
+# ============================================================
+# Parse dos argumentos
+# ============================================================
+KEY_CLAUDE=""
+KEY_CHATGPT=""
+KEY_KIMI=""
+KEY_GROK=""
+KEY_GEMINI=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --claude)   KEY_CLAUDE="$2"; shift 2 ;;
+    --chatgpt)  KEY_CHATGPT="$2"; shift 2 ;;
+    --kimi)     KEY_KIMI="$2"; shift 2 ;;
+    --grok)     KEY_GROK="$2"; shift 2 ;;
+    --gemini)   KEY_GEMINI="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 echo "============================================================"
 echo "  OmniNinja — Instalador COMPLETO"
@@ -33,15 +56,26 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Verifica se as chaves foram passadas
-if [ -z "${KEY_CLAUDE:-}" ]; then
-  echo "ERRO: As chaves não foram passadas!"
-  echo "Rode assim:"
-  echo "  export KEY_CLAUDE=\"sk-or-v1-...\""
-  echo "  export KEY_CHATGPT=\"sk-or-v1-...\""
-  echo "  export KEY_KIMI=\"sk-or-v1-...\""
-  echo "  export KEY_GROK=\"sk-or-v1-...\""
-  echo "  export KEY_GEMINI=\"AQ....\""
-  echo "  curl -fsSL https://raw.githubusercontent.com/Vxvjsiwieh82/omnininja/main/install-full.sh | sudo -E bash"
+MISSING=""
+[ -z "$KEY_CLAUDE" ]   && MISSING="$MISSING --claude"
+[ -z "$KEY_CHATGPT" ]  && MISSING="$MISSING --chatgpt"
+[ -z "$KEY_KIMI" ]     && MISSING="$MISSING --kimi"
+[ -z "$KEY_GROK" ]     && MISSING="$MISSING --grok"
+[ -z "$KEY_GEMINI" ]   && MISSING="$MISSING --gemini"
+
+if [ -n "$MISSING" ]; then
+  echo "ERRO: Faltam chaves! Faltando:$MISSING"
+  echo ""
+  echo "Rode assim (tudo em uma linha ou com \\ no final):"
+  echo ""
+  echo '  curl -fsSL https://raw.githubusercontent.com/Vxvjsiwieh82/omnininja/main/install-full.sh | \'
+  echo '    sudo bash -s -- \'
+  echo '      --claude "sk-or-v1-..." \'
+  echo '      --chatgpt "sk-or-v1-..." \'
+  echo '      --kimi "sk-or-v1-..." \'
+  echo '      --grok "sk-or-v1-..." \'
+  echo '      --gemini "AQ...."'
+  echo ""
   exit 1
 fi
 
