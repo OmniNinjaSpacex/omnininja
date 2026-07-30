@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================
-# OmniNinja — CORREÇÃO DE INSTALAÇÃO v2
+# OmniNinja — CORREÇÃO DE INSTALAÇÃO v3
 #
-# Resolve: bun inacessível, build não feito, permissões erradas.
-# Instala bun em /opt/omnininja/.bun (acessível a todos).
-# Faz build como root e dá permissão depois.
+# Verificações explícitas em cada passo.
+# Se algo falhar, mostra o erro e para.
 #
 # Como usar:
 #   curl -fsSL https://raw.githubusercontent.com/Vxvjsiwieh82/omnininja/main/fix-install.sh | sudo bash
@@ -14,6 +13,8 @@ set -euo pipefail
 INSTALL_DIR="/opt/omnininja"
 SERVICE_USER="omnininja"
 APP_DIR="$INSTALL_DIR/app"
+BUN_INSTALL="$INSTALL_DIR/.bun"
+BUN_BIN="$BUN_INSTALL/bin/bun"
 
 # Chaves em base64
 KEY_CLAUDE=$(echo "c2stb3ItdjEtYTFiNTRhZjczNTAxYzE1OGY4OTc1OGI3ZWNlNzM1OGMyZDU0NzA2NmVlOTUyM2I3MDIxZTg1Y2RiNDExZDc4NQ==" | base64 -d)
@@ -23,7 +24,7 @@ KEY_GROK=$(echo "c2stb3ItdjEtMzRlOGJjOTUyODk1MGM4Mjg2YTg5NTMwMGFlNDg4MThkYWEyNmI
 KEY_GEMINI=$(echo "QVEuQWI4Uk42S0dlNGdIamdFUTROZDJCTUl2VnY4Q2NJMF9kN3FkZFM0YThDSWRYeEFzRGc=" | base64 -d)
 
 echo "============================================================"
-echo "  OmniNinja — CORREÇÃO DE INSTALAÇÃO v2"
+echo "  OmniNinja — CORREÇÃO v3 (com verificações)"
 echo "============================================================"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -32,10 +33,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # ============================================================
-# PASSO 1 — Parar serviço antigo + limpar
+# PASSO 1 — Parar tudo
 # ============================================================
 echo ""
-echo "[1/8] Parando serviços antigos..."
+echo "[1/9] Parando serviços..."
 systemctl stop omnininja 2>/dev/null || true
 fuser -k 8000/tcp 2>/dev/null || true
 fuser -k 3000/tcp 2>/dev/null || true
@@ -43,42 +44,61 @@ sleep 2
 echo "  ✅ Parado"
 
 # ============================================================
-# PASSO 2 — Instalar Bun em local acessível a TODOS
+# PASSO 2 — Instalar Bun (verificação explícita)
 # ============================================================
 echo ""
-echo "[2/8] Instalando Bun em /opt/omnininja/.bun..."
-BUN_INSTALL="$INSTALL_DIR/.bun"
-export BUN_INSTALL
-mkdir -p "$BUN_INSTALL"
-# Remove instalação antiga que pode estar quebrada
+echo "[2/9] Instalando Bun..."
 rm -f /usr/local/bin/bun 2>/dev/null || true
+rm -rf "$BUN_INSTALL" 2>/dev/null || true
+mkdir -p "$BUN_INSTALL"
 
-curl -fsSL https://bun.sh/install | bash
-# O instalador do bun cria $BUN_INSTALL/bin/bun
-BUN_BIN="$BUN_INSTALL/bin/bun"
-if [ -f "$BUN_BIN" ]; then
-  chmod +x "$BUN_BIN"
-  ln -sf "$BUN_BIN" /usr/local/bin/bun
-  # Dar permissão para todos lerem e executarem
-  chmod 755 "$BUN_INSTALL"
-  chmod 755 "$BUN_INSTALL/bin"
-  chmod 755 "$BUN_BIN"
+export BUN_INSTALL
+BUN_INSTALL="$INSTALL_DIR/.bun" curl -fsSL https://bun.sh/install | bash
+
+if [ ! -f "$BUN_BIN" ]; then
+  echo "  ❌ ERRO: bun não foi instalado em $BUN_BIN"
+  echo "  Tentando instalação alternativa..."
+  # Tentativa alternativa: baixar binário diretamente
+  BUN_URL=$(curl -s https://api.github.com/repos/oven-sh/bun/releases/latest | grep -o 'https://github.com/oven-sh/bun/releases/download/[^"]*bun-linux-x64.zip' | head -1)
+  if [ -n "$BUN_URL" ]; then
+    echo "  Baixando de: $BUN_URL"
+    cd /tmp
+    curl -fsSL -o bun.zip "$BUN_URL"
+    unzip -o bun.zip
+    mkdir -p "$BUN_INSTALL/bin"
+    cp bun-linux-x64/bun "$BUN_BIN"
+    chmod +x "$BUN_BIN"
+    rm -rf bun.zip bun-linux-x64
+  fi
 fi
 
-# Verificar
-if [ -x "$BUN_BIN" ]; then
-  echo "  ✅ Bun instalado: $("$BUN_BIN" --version)"
-else
-  echo "  ❌ Falha ao instalar bun"
-  ls -la "$BUN_INSTALL/bin/" 2>/dev/null || true
+if [ ! -x "$BUN_BIN" ]; then
+  echo "  ❌ FALHA CRÍTICA: bun não pôde ser instalado"
   exit 1
 fi
 
+chmod 755 "$BUN_INSTALL" "$BUN_INSTALL/bin" "$BUN_BIN"
+ln -sf "$BUN_BIN" /usr/local/bin/bun
+export PATH="$BUN_INSTALL/bin:$PATH"
+echo "  ✅ Bun: $($BUN_BIN --version)"
+
 # ============================================================
-# PASSO 3 — Reescrever .env
+# PASSO 3 — Garantir Node.js (bun precisa de node para next)
 # ============================================================
 echo ""
-echo "[3/8] Reescrevendo .env..."
+echo "[3/9] Verificando Node.js..."
+if ! command -v node >/dev/null 2>&1; then
+  echo "  Instalando Node.js 20..."
+  curl -fsSL "https://deb.nodesource.com/setup_20.x" | bash -
+  apt-get install -y nodejs
+fi
+echo "  ✅ Node: $(node -v), npm: $(npm -v)"
+
+# ============================================================
+# PASSO 4 — .env
+# ============================================================
+echo ""
+echo "[4/9] Reescrevendo .env..."
 ENV_FILE="$APP_DIR/.env"
 PUBLIC_IP="$(curl -s http://checkip.amazonaws.com 2>/dev/null || echo '3.141.8.126')"
 SECRET="$(openssl rand -hex 32)"
@@ -103,62 +123,63 @@ AUTH_SECRET=$SECRET
 ENVEOF
 
 chmod 600 "$ENV_FILE"
-chown "$SERVICE_USER":"$SERVICE_USER" "$ENV_FILE"
-echo "  ✅ .env com 5 chaves + IP: $PUBLIC_IP"
+echo "  ✅ .env escrito (IP: $PUBLIC_IP)"
 
 # ============================================================
-# PASSO 4 — Instalar dependências (como ROOT, sem sudo -u)
+# PASSO 5 — Instalar dependências (output COMPLETO, sem tail)
 # ============================================================
 echo ""
-echo "[4/8] Instalando dependências..."
+echo "[5/9] Instalando dependências (bun install)..."
 export HOME="$INSTALL_DIR"
-export BUN_INSTALL="$INSTALL_DIR/.bun"
-export PATH="$BUN_INSTALL/bin:/usr/local/bin:/usr/bin:/bin"
 export PLAYWRIGHT_BROWSERS_PATH="$INSTALL_DIR/.cache/ms-playwright"
 
 cd "$APP_DIR"
-echo "  Rodando: bun install..."
-bun install 2>&1 | tail -5
+$BUN_BIN install 2>&1
+if [ ! -d "$APP_DIR/node_modules" ]; then
+  echo "  ❌ ERRO: node_modules não foi criado"
+  exit 1
+fi
 echo "  ✅ Dependências instaladas"
 
 # ============================================================
-# PASSO 5 — Prisma + Chromium
+# PASSO 6 — Prisma
 # ============================================================
 echo ""
-echo "[5/8] Prisma + Chromium..."
-echo "  Gerando Prisma..."
-bun run db:generate 2>&1 | tail -3
-echo "  Push do banco..."
-bun run db:push 2>&1 | tail -3
-echo "  Instalando Chromium..."
-bunx playwright install chromium 2>&1 | tail -3
-echo "  ✅ Prisma + Chromium pronto"
+echo "[6/9] Prisma..."
+$BUN_BIN run db:generate 2>&1
+$BUN_BIN run db:push 2>&1
+echo "  ✅ Prisma pronto"
 
 # ============================================================
-# PASSO 6 — Build do Next.js
+# PASSO 7 — Build (output COMPLETO para ver erros)
 # ============================================================
 echo ""
-echo "[6/8] Build do Next.js (~2-3 min)..."
-bun run build 2>&1 | tail -15
+echo "[7/9] Build do Next.js (output completo)..."
+echo "  ===================================="
+$BUN_BIN run build 2>&1
+BUILD_EXIT=$?
+echo "  ===================================="
+echo "  Build exit code: $BUILD_EXIT"
 
-# Verificar se o build foi feito
-if [ -d "$APP_DIR/.next/standalone" ]; then
-  echo "  ✅ Build completo! .next/standalone existe"
-else
-  echo "  ⚠️ Build pode ter falhado. Verificando..."
-  ls -la "$APP_DIR/.next/" 2>/dev/null | head -10
+if [ ! -d "$APP_DIR/.next/standalone" ]; then
+  echo "  ❌ ERRO: .next/standalone não foi criado. Build falhou!"
+  echo "  Conteúdo de .next/:"
+  ls -la "$APP_DIR/.next/" 2>/dev/null || echo "  .next não existe"
+  exit 1
 fi
+echo "  ✅ Build OK! .next/standalone existe"
 
-# Dar permissão ao usuário omnininja
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$APP_DIR"
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR/.cache"
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR/data"
+# Copiar static e public para standalone (o script build já faz, mas garantir)
+cp -r "$APP_DIR/.next/static" "$APP_DIR/.next/standalone/.next/" 2>/dev/null || true
+cp -r "$APP_DIR/public" "$APP_DIR/.next/standalone/" 2>/dev/null || true
 
 # ============================================================
-# PASSO 7 — Reescrever serviço systemd
+# PASSO 8 — Permissões + serviço systemd
 # ============================================================
 echo ""
-echo "[7/8] Reescrevendo serviço systemd..."
+echo "[8/9] Permissões + serviço systemd..."
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
+
 cat > /etc/systemd/system/omnininja.service <<UNIT
 [Unit]
 Description=OmniNinja (Next.js)
@@ -173,10 +194,10 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=0.0.0.0
 Environment=HOME=$INSTALL_DIR
-Environment=BUN_INSTALL=$INSTALL_DIR/.bun
+Environment=BUN_INSTALL=$BUN_INSTALL
 Environment=PLAYWRIGHT_BROWSERS_PATH=$INSTALL_DIR/.cache/ms-playwright
-Environment=PATH=$INSTALL_DIR/.bun/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=$INSTALL_DIR/.bun/bin/bun run start
+Environment=PATH=$BUN_INSTALL/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$BUN_BIN .next/standalone/server.js
 Restart=on-failure
 RestartSec=5
 [Install]
@@ -185,55 +206,45 @@ UNIT
 
 systemctl daemon-reload
 systemctl enable omnininja
-echo "  ✅ Serviço reescrito"
+ufw allow 3000/tcp 2>/dev/null || true
+echo "  ✅ Serviço criado"
 
 # ============================================================
-# PASSO 8 — Iniciar e verificar
+# PASSO 9 — Iniciar
 # ============================================================
 echo ""
-echo "[8/8] Iniciando servidor..."
-ufw allow 3000/tcp 2>/dev/null || true
-
+echo "[9/9] Iniciando..."
 systemctl start omnininja
-sleep 5
+sleep 8
 
 # Verificar
-if curl -s -o /dev/null -w "" "http://localhost:3000" 2>/dev/null; then
-  echo "  ✅ Servidor rodando na porta 3000!"
-else
-  echo "  Aguardando mais 10s..."
-  sleep 10
-fi
-
-# Verificação final
 echo ""
 echo "============================================================"
 echo "  VERIFICAÇÃO FINAL"
 echo "============================================================"
 echo ""
+echo "  Status do serviço:"
+systemctl is-active omnininja 2>/dev/null || echo "  inativo"
+echo ""
 echo "  Porta 3000:"
-ss -tlnp | grep 3000 && echo "  ✅ Escutando!" || echo "  ❌ Não escutando"
+ss -tlnp | grep ':3000' && echo "  ✅ Escutando!" || echo "  ❌ Não escutando"
 echo ""
 echo "  HTTP local:"
 curl -s -o /dev/null -w "  HTTP %{http_code}\n" http://localhost:3000 2>/dev/null || echo "  ❌ Sem resposta"
 echo ""
-echo "  Serviço:"
-systemctl is-active omnininja 2>/dev/null
-echo ""
-echo "============================================================"
-if ss -tlnp | grep -q 3000; then
+
+if ss -tlnp | grep -q ':3000'; then
+  echo "============================================================"
   echo "  ✅✅✅ TUDO FUNCIONANDO! ✅✅✅"
   echo ""
   echo "  🌐 Acesse: http://$PUBLIC_IP:3000"
-  echo ""
-  echo "  📊 Comandos:"
-  echo "     Status:    sudo systemctl status omnininja"
-  echo "     Logs:      sudo journalctl -u omnininja -f"
-  echo "     Reiniciar: sudo systemctl restart omnininja"
+  echo "============================================================"
 else
-  echo "  ⚠️ Ainda há problemas."
-  echo "  Rode: sudo journalctl -u omnininja --no-pager -n 30"
-  echo "  E mande o resultado."
+  echo "============================================================"
+  echo "  ⚠️ Servidor não subiu. Últimos logs:"
+  echo "============================================================"
+  journalctl -u omnininja --no-pager -n 20
+  echo ""
+  echo "  Rode e me mande: sudo journalctl -u omnininja --no-pager -n 30"
 fi
-echo "============================================================"
 echo ""
