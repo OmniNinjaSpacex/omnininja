@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import type { AgentEvent, PlanStep, Artifact } from '@/lib/orchestrator';
+export type { AgentEvent } from '@/lib/orchestrator';
 
 export type View = 'landing' | 'workspace';
 export type AgentMode = 'chat' | 'agent' | 'agent_max';
@@ -86,7 +87,7 @@ interface OmniState {
 
   // sidebar (mobile)
   sidebarOpen: boolean;
-  setSidebarOpen: (v: boolean) => void;
+  setSidebarOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 export const useOmni = create<OmniState>((set) => ({
@@ -163,5 +164,5 @@ export const useOmni = create<OmniState>((set) => ({
   setLive: (v) => set({ live: v }),
 
   sidebarOpen: false,
-  setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  setSidebarOpen: (v) => set((state) => ({ sidebarOpen: typeof v === 'function' ? v(state.sidebarOpen) : v })),
 }));

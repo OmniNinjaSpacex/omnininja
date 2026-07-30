@@ -1,23 +1,34 @@
-// OmniNinja — Real Shell Agent (Ubuntu compartilhado)
-// Executa comandos bash/python/node REAIS num workspace isolado por task.
-// Cada task tem seu diretório em WORKSPACE_ROOT; path traversal é bloqueado.
+// OmniNinja — Shell Agent com VM Sandbox (estilo Manus AI)
+// =========================================================================
+// Executa comandos bash/python/node REAIS dentro de uma "máquina virtual"
+// isolada por task — exatamente como Manus AI (E2B/Firecracker) faz.
 //
-// Modelo de isolamento (sem Docker, para Ubuntu compartilhado):
-//  - Diretório por task (WORKSPACE_ROOT/<taskId>), criado on-demand.
-//  - HOME apontado para o workspace do task (npm/pip guardam cache por task).
-//  - Timeout por comando (evita comandos travados consumindo recursos).
-//  - maxBuffer limita saída (proteção de memória).
-//  - Para isolamento forte de UID, rode cada task num `unshare --user --map-root-user`
-//    namespace (ver TUTORIAL_UBUNTU.md, seção segurança).
+// O isolamento é gerenciado por sandbox.ts, que detecta automaticamente
+// o melhor nível disponível no host:
+//   Nível 2: unshare + proot (namespace real do kernel)
+//   Nível 1: chroot com debootstrap (filesystem Ubuntu isolado)
+//   Nível 0: diretório isolado (fallback — sempre funciona)
+//
+// Cada task tem seu próprio workspace persistente. Path traversal é bloqueado.
+// O agente não precisa saber qual nível está rodando — a interface é a mesma.
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
+import {
+  executeInSandbox,
+  sandboxFileWrite,
+  sandboxFileRead,
+  sandboxListFiles,
+  cleanupSandbox,
+  detectSandboxLevel,
+  type SandboxLevel,
+} from './sandbox';
 
 const execAsync = promisify(exec);
 
-// Pode ser sobrescrito por .env. Padrão Ubuntu: /opt/omnininja/workspaces
+// Mantido para compatibilidade — sandbox.ts usa o mesmo WORKSPACE_ROOT
 const WORKSPACE_ROOT = process.env.OMNININJA_WORKSPACE_ROOT || '/opt/omnininja/workspaces';
 
 function getWorkspace(taskId: string): string {
@@ -37,58 +48,30 @@ export interface ShellResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  sandboxLevel?: SandboxLevel;
 }
 
-export async function shellExec(taskId: string, cmd: string, timeoutMs = 30000): Promise<ShellResult> {
-  const workspace = getWorkspace(taskId);
-  try {
-    const { stdout, stderr } = await execAsync(cmd, {
-      cwd: workspace,
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024,
-      env: {
-        ...process.env,
-        HOME: workspace,
-        PATH: process.env.PATH,
-        // Garante que ferramentas npm/pip locais funcionem
-        npm_config_prefix: join(workspace, '.npm-global'),
-      },
-    });
-    return {
-      cmd,
-      stdout: stdout.slice(0, 10000),
-      stderr: stderr.slice(0, 5000),
-      exitCode: 0,
-    };
-  } catch (err: any) {
-    return {
-      cmd,
-      stdout: (err.stdout ?? '').slice(0, 10000),
-      stderr: (err.stderr ?? err.message ?? '').slice(0, 5000),
-      exitCode: err.code ?? 1,
-    };
-  }
+/**
+ * Executa um comando DENTRO do sandbox VM isolado da task.
+ * Delega para sandbox.ts que detecta o nível de isolamento automaticamente.
+ */
+export async function shellExec(taskId: string, cmd: string, timeoutMs = 60000): Promise<ShellResult> {
+  const result = await executeInSandbox(taskId, cmd, timeoutMs);
+  return {
+    cmd: result.cmd,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    sandboxLevel: result.sandboxLevel,
+  };
 }
 
 export function fileWrite(taskId: string, path: string, content: string): { path: string; bytes: number } {
-  const workspace = getWorkspace(taskId);
-  // bloqueia path traversal — só caminhos relativos dentro do workspace
-  const safePath = join(workspace, path.replace(/^\//, ''));
-  const rel = safePath.slice(workspace.length);
-  if (rel.startsWith('..')) throw new Error('path traversal bloqueado');
-  mkdirSync(join(safePath, '..'), { recursive: true });
-  writeFileSync(safePath, content);
-  return { path: safePath, bytes: content.length };
+  return sandboxFileWrite(taskId, path, content);
 }
 
 export function fileRead(taskId: string, path: string): string {
-  const workspace = getWorkspace(taskId);
-  const safePath = join(workspace, path.replace(/^\//, ''));
-  try {
-    return readFileSync(safePath, 'utf-8').slice(0, 20000);
-  } catch {
-    return `Error: file not found: ${path}`;
-  }
+  return sandboxFileRead(taskId, path);
 }
 
 export function fileDelete(taskId: string, path: string): boolean {
@@ -103,32 +86,26 @@ export function fileDelete(taskId: string, path: string): boolean {
 }
 
 export function cleanupWorkspace(taskId: string) {
-  const dir = join(WORKSPACE_ROOT, taskId);
-  if (existsSync(dir)) {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  cleanupSandbox(taskId);
 }
 
 export async function listFiles(taskId: string): Promise<string[]> {
-  const workspace = getWorkspace(taskId);
-  try {
-    const { stdout } = await execAsync('find . -type f | head -50', { cwd: workspace });
-    return stdout.split('\n').filter(Boolean);
-  } catch {
-    return [];
-  }
+  return sandboxListFiles(taskId);
 }
 
 /**
  * Expõe uma porta local para acesso público.
- * No Ubuntu: usa o trampoline nativo do OmniNinja (porta de proxy) ou, em
- * produção, um túnel (cloudflared / frp / ngrok). Aqui devolvemos uma URL
- * baseada no host público configurado.
+ * No Ubuntu: usa o trampoline nativo do OmniNinja ou um túnel.
  */
 export async function exposePort(taskId: string, port: number): Promise<{ url: string; port: number }> {
-  // Em produção, OMNININJA_PUBLIC_BASE = https://seu-dominio.com
-  // e o Caddy/nginx expõe /proxy/<port> -> localhost:<port>.
   const base = process.env.OMNININJA_PUBLIC_BASE || process.env.NEXT_PUBLIC_APP_URL || '';
   const url = base ? `${base.replace(/\/$/, '')}/proxy/${port}` : `http://localhost:${port}`;
   return { url, port };
+}
+
+/**
+ * Retorna o nível de sandbox ativo (para diagnóstico/UI).
+ */
+export function getSandboxLevel(): SandboxLevel {
+  return detectSandboxLevel();
 }

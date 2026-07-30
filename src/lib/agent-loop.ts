@@ -240,8 +240,8 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
             type: 'BROWSER_ACTION',
             taskId,
             action: toolName,
-            url: browserResult.url,
-            screenshotBase64: browserResult.screenshot,
+            url: browserResult?.url,
+            screenshotBase64: browserResult?.screenshot,
             detail: observation,
             ts: Date.now(),
           });

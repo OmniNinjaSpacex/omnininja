@@ -63,6 +63,7 @@ fi
 apt-get install -y --no-install-recommends \
   curl wget git unzip ca-certificates gnupg build-essential python3 python3-pip \
   jq sqlite3 rsync \
+  proot uidmap debootstrap \
   libnss3 libnspr4 "$LIBATK" "$LIBATKBRIDGE" "$LIBCUPS" libdrm2 libdbus-1-3 \
   libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
   libpango-1.0-0 libcairo2 "$LIBASOUND" fonts-liberation xdg-utils
@@ -138,6 +139,8 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=
 PLAYWRIGHT_HEADLESS=true
 PLAYWRIGHT_BROWSERS_PATH=$INSTALL_DIR/.cache/ms-playwright
 OMNININJA_WORKSPACE_ROOT=$INSTALL_DIR/workspaces
+OMNININJA_SANDBOX_BASE=$INSTALL_DIR/sandboxes
+OMNININJA_SANDBOX_IMAGE=$INSTALL_DIR/sandbox-base
 OMNININJA_PUBLIC_BASE=http://$PUBLIC_IP:3000
 NEXT_PUBLIC_APP_URL=http://$PUBLIC_IP:3000
 NEXT_PUBLIC_API_URL=http://$PUBLIC_IP:3000
@@ -166,6 +169,18 @@ sudo -u "$SERVICE_USER" bash -lc "
   bun run build 2>&1 | tail -10
 "
 echo "  ✅ Passo 7 completo"
+
+# ============================================================
+# PASSO 7b — Setup do Sandbox VM (estilo Manus AI)
+# ============================================================
+echo ""
+echo "[7b/9] Configurando Sandbox VM (estilo Manus AI)..."
+if [ -f "$INSTALL_DIR/app/scripts/setup-sandbox.sh" ]; then
+  bash "$INSTALL_DIR/app/scripts/setup-sandbox.sh" 2>&1 | tail -15 || echo "  ⚠️ Sandbox setup parcial (usa fallback diretório)"
+else
+  echo "  ℹ️ Script setup-sandbox.sh não encontrado (usando isolamento por diretório)"
+fi
+echo "  ✅ Passo 7b completo"
 
 # ============================================================
 # PASSO 8 — systemd

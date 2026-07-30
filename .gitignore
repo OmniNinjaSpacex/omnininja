@@ -63,3 +63,4 @@ tool-results/
 *.db-journal
 traced_dependencies/
 .cache/
+install-ready.sh
