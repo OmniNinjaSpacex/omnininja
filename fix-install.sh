@@ -157,8 +157,8 @@ echo ""
 echo "[6.5/9] Configurando memória SWAP..."
 SWAP_FILE="/swapfile"
 if [ ! -f "$SWAP_FILE" ]; then
-  echo "  Criando swap de 4GB..."
-  dd if=/dev/zero of="$SWAP_FILE" bs=1M count=4096 status=progress
+  echo "  Criando swap de 6GB..."
+  dd if=/dev/zero of="$SWAP_FILE" bs=1M count=6144 status=progress
   chmod 600 "$SWAP_FILE"
   mkswap "$SWAP_FILE"
   swapon "$SWAP_FILE"
@@ -166,35 +166,63 @@ if [ ! -f "$SWAP_FILE" ]; then
   if ! grep -q "$SWAP_FILE" /etc/fstab; then
     echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
   fi
-  echo "  ✅ Swap de 4GB criado e ativado"
+  echo "  ✅ Swap de 6GB criado e ativado"
 else
-  swapon "$SWAP_FILE" 2>/dev/null || true
-  echo "  ✅ Swap já existe e está ativo"
+  # Se o swap existe mas é pequeno (4GB), remover e criar 6GB
+  CURRENT_SWAP=$(swapon --show=SIZE --noheadings --bytes 2>/dev/null | head -1 || echo "0")
+  if [ "$CURRENT_SWAP" -lt 5000000000 ] 2>/dev/null; then
+    echo "  Swap pequeno detectado. Removendo e criando 6GB..."
+    swapoff "$SWAP_FILE" 2>/dev/null || true
+    rm -f "$SWAP_FILE"
+    dd if=/dev/zero of="$SWAP_FILE" bs=1M count=6144 status=progress
+    chmod 600 "$SWAP_FILE"
+    mkswap "$SWAP_FILE"
+    swapon "$SWAP_FILE"
+    echo "  ✅ Swap de 6GB recriado"
+  else
+    swapon "$SWAP_FILE" 2>/dev/null || true
+    echo "  ✅ Swap já existe e está ativo"
+  fi
 fi
 echo "  Memória atual:"
-free -h | head -3
+free -h
+
+# Aumentar o swappiness para usar mais swap
+sysctl vm.swappiness=60 2>/dev/null || true
 
 # ============================================================
-# PASSO 7 — Build (output COMPLETO para ver erros)
+# PASSO 7 — Build do Next.js (SEM Turbopack, direto)
 # ============================================================
 echo ""
-echo "[7/9] Build do Next.js (output completo)..."
+echo "[7/9] Build do Next.js (webpack, sem Turbopack)..."
 echo "  ===================================="
-# Usar npx next build com --no-turbopack para usar menos memória
-# (Turbopack consome mais RAM que webpack no build)
-export NODE_OPTIONS="--max-old-space-size=1536"
-$BUN_BIN run build 2>&1 || {
-  echo "  ⚠️ Build com bun falhou (provavelmente memória). Tentando com npx..."
-  # Fallback: usar npx next build diretamente
-  npx next build --no-turbopack 2>&1 || {
-    echo "  ⚠️ Tentando com node diretamente..."
-    node node_modules/.bin/next build --no-turbopack 2>&1
-  }
-  # Copiar static e public para standalone
-  cp -r "$APP_DIR/.next/static" "$APP_DIR/.next/standalone/.next/" 2>/dev/null || true
-  cp -r "$APP_DIR/public" "$APP_DIR/.next/standalone/" 2>/dev/null || true
-}
+# Desativar set -e temporariamente para tentar múltiplas abordagens
+set +e
+export NODE_OPTIONS="--max-old-space-size=4096"
+
+# Abordagem 1: next build --no-turbopack direto (webpack usa menos memória)
+echo "  Tentativa 1: next build --no-turbopack (webpack)..."
+cd "$APP_DIR"
+node node_modules/.bin/next build --no-turbopack 2>&1
 BUILD_EXIT=$?
+
+if [ $BUILD_EXIT -ne 0 ] || [ ! -d "$APP_DIR/.next/standalone" ]; then
+  echo ""
+  echo "  Tentativa 1 falhou (exit $BUILD_EXIT). Tentativa 2: npx..."
+  rm -rf "$APP_DIR/.next" 2>/dev/null
+  npx next build --no-turbopack 2>&1
+  BUILD_EXIT=$?
+fi
+
+if [ $BUILD_EXIT -ne 0 ] || [ ! -d "$APP_DIR/.next/standalone" ]; then
+  echo ""
+  echo "  Tentativa 2 falhou (exit $BUILD_EXIT). Tentativa 3: bun com webpack..."
+  rm -rf "$APP_DIR/.next" 2>/dev/null
+  NEXT_BUILD_USE_TURBOPACK=0 $BUN_BIN run build 2>&1
+  BUILD_EXIT=$?
+fi
+
+set -e
 echo "  ===================================="
 echo "  Build exit code: $BUILD_EXIT"
 
@@ -206,9 +234,10 @@ if [ ! -d "$APP_DIR/.next/standalone" ]; then
 fi
 echo "  ✅ Build OK! .next/standalone existe"
 
-# Copiar static e public para standalone (o script build já faz, mas garantir)
+# Copiar static e public para standalone (necessário para o server.js funcionar)
 cp -r "$APP_DIR/.next/static" "$APP_DIR/.next/standalone/.next/" 2>/dev/null || true
 cp -r "$APP_DIR/public" "$APP_DIR/.next/standalone/" 2>/dev/null || true
+echo "  ✅ static + public copiados para standalone"
 
 # ============================================================
 # PASSO 8 — Permissões + serviço systemd
