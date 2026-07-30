@@ -117,7 +117,7 @@ sudo -u "$SERVICE_USER" bash -lc "
 
 # 8) Serviço systemd
 echo "[8/8] Instalando serviço systemd..."
-CAT > /etc/systemd/system/omnininja.service <<UNIT
+cat > /etc/systemd/system/omnininja.service <<UNIT
 [Unit]
 Description=OmniNinja — Agente de IA autônomo (estilo Manus)
 After=network.target
