@@ -3,6 +3,7 @@
 
 import { NextResponse } from 'next/server';
 import { sandboxHealth } from '@/lib/sandbox';
+import { getBrowserMode } from '@/lib/browser-agent';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -32,5 +33,11 @@ export async function GET() {
     },
     manusCompatible: true,
     architecture: 'OmniNinja VM Sandbox — cada task roda em máquina virtual isolada (estilo Manus AI)',
+    browser: {
+      mode: getBrowserMode(),
+      description: getBrowserMode() === 'browserless'
+        ? 'Browserless cloud (Chromium gerenciado na nuvem via WebSocket/CDP)'
+        : 'Chromium local (Playwright com browser instalado no Ubuntu)',
+    },
   });
 }

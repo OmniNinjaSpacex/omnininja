@@ -1,157 +1,152 @@
-// OmniNinja — Real Browser Agent (Chromium LOCAL, sem Browserless)
-// Roda um Chromium real no Ubuntu via Playwright. Cada task ganha um context
-// isolado (cookies/storage separados), permitindo múltiplos usuários em paralelo.
-// Em produção multiusuário, defina PLAYWRIGHT_BROWSERS_PATH para um diretório
-// compartilhado e os browsers são instalados uma vez.
+// OmniNinja - Browser Agent
+// Suporta 2 modos:
+//  1. BROWSERLESS (cloud) - quando BROWSERLESS_API_KEY esta definida.
+//     Conecta via connectOverCDP ao wss://production-sfo.browserless.io
+//     Mais rapido, escalavel, nao consome RAM do Ubuntu.
+//  2. LOCAL Chromium - fallback. Roda Chromium local via Playwright.
+//     Usado quando nao ha chave Browserless.
 
-import { chromium, type Browser, type Page, type BrowserContext } from 'playwright-core';
+let _chromium: any = null;
+async function getChromium(): Promise<any> {
+  if (_chromium) return _chromium;
+  const pw = await import('playwright-core');
+  _chromium = pw.chromium;
+  return _chromium;
+}
 
-// Em vez de conectar ao Browserless, lançamos um Chromium local.
-// PLAYWRIGHT_CHROMIUM_EXECUTABLE aponta para o binário; se não setado,
-// o Playwright usa o browser que baixou via `playwright install chromium`.
+const BROWSERLESS_TOKEN = process.env.BROWSERLESS_API_KEY || '';
+const BROWSERLESS_REGION = process.env.BROWSERLESS_REGION || 'production-sfo';
 const EXECUTABLE = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
 const HEADLESS = (process.env.PLAYWRIGHT_HEADLESS ?? 'true') !== 'false';
 
-// Singleton de browser (reutilizado entre tasks; cada task ganha um context).
-let browserInstance: Browser | null = null;
-let launchPromise: Promise<Browser> | null = null;
+const USE_BROWSERLESS = BROWSERLESS_TOKEN.length > 10;
 
-export async function getBrowser(): Promise<Browser> {
+let browserInstance: any = null;
+let launchPromise: Promise<any> | null = null;
+
+export function getBrowserMode(): 'browserless' | 'local' {
+  return USE_BROWSERLESS ? 'browserless' : 'local';
+}
+
+export async function getBrowser(): Promise<any> {
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
   if (launchPromise) return launchPromise;
 
   launchPromise = (async () => {
-    const launchOpts: any = {
-      headless: HEADLESS,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage', // importante em containers/Ubuntu compartilhado
-        '--disable-gpu',
-        '--no-zygote',
-        '--single-process',
-        '--window-size=1280,720',
-      ],
-    };
-    if (EXECUTABLE) launchOpts.executablePath = EXECUTABLE;
+    const chromium = await getChromium();
+    let browser: any;
 
-    const browser = await chromium.launch(launchOpts);
+    if (USE_BROWSERLESS) {
+      const wsUrl = `wss://${BROWSERLESS_REGION}.browserless.io?token=${BROWSERLESS_TOKEN}`;
+      browser = await chromium.connectOverCDP(wsUrl);
+    } else {
+      const launchOpts: any = {
+        headless: HEADLESS,
+        args: [
+          '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+          '--disable-gpu', '--no-zygote', '--single-process', '--window-size=1280,720',
+        ],
+      };
+      if (EXECUTABLE) launchOpts.executablePath = EXECUTABLE;
+      browser = await chromium.launch(launchOpts);
+    }
+
     browserInstance = browser;
     launchPromise = null;
-
-    // se o browser cair, limpa para re-lançar na próxima chamada
-    browser.on('disconnected', () => {
-      browserInstance = null;
-      launchPromise = null;
-    });
+    browser.on('disconnected', () => { browserInstance = null; launchPromise = null; });
     return browser;
   })();
 
   return launchPromise;
 }
 
-export async function createPage(): Promise<Page> {
+export async function createPage(): Promise<any> {
   const browser = await getBrowser();
-  // Context isolado por chamada -> isolamento entre usuários/tasks.
-  const context: BrowserContext = await browser.newContext({
-    viewport: { width: 1280, height: 720 },
-    userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    ignoreHTTPSErrors: true,
-  });
-  // Bloqueia recursos pesados opcionais (mantém rápido em Ubuntu compartilhado).
-  await context.route('**/*.{woff,woff2,mp4,webm,ogg}', (route) => route.abort().catch(() => {}));
+  let context: any;
+
+  if (USE_BROWSERLESS) {
+    const contexts = browser.contexts();
+    context = contexts[0] || (await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      ignoreHTTPSErrors: true,
+    }));
+  } else {
+    context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      ignoreHTTPSErrors: true,
+    });
+    await context.route('**/*.{woff,woff2,mp4,webm,ogg}', (r: any) => r.abort().catch(() => {}));
+  }
+
   const page = await context.newPage();
   return page;
 }
 
 export interface BrowserActionResult {
-  screenshot?: string; // base64
-  url?: string;
-  title?: string;
-  text?: string;
-  error?: string;
+  screenshot?: string; url?: string; title?: string; text?: string; error?: string;
 }
 
-async function screenshot(page: Page): Promise<string> {
+async function screenshot(page: any): Promise<string> {
   const buf = await page.screenshot({ type: 'png', fullPage: false });
   return buf.toString('base64');
 }
 
-async function waitForStable(page: Page) {
+async function waitForStable(page: any) {
   try { await page.waitForLoadState('networkidle', { timeout: 8000 }); } catch {}
   await page.waitForTimeout(500);
 }
 
 export const browserTools = {
-  navigate: async (page: Page, url: string): Promise<BrowserActionResult> => {
+  navigate: async (page: any, url: string): Promise<BrowserActionResult> => {
     await page.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
     await waitForStable(page);
-    return {
-      screenshot: await screenshot(page),
-      url: page.url(),
-      title: await page.title(),
-    };
+    return { screenshot: await screenshot(page), url: page.url(), title: await page.title() };
   },
-
-  click: async (page: Page, selector: string): Promise<BrowserActionResult> => {
+  click: async (page: any, selector: string): Promise<BrowserActionResult> => {
     await page.click(selector, { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(300);
     return { screenshot: await screenshot(page), url: page.url() };
   },
-
-  type: async (page: Page, selector: string, text: string): Promise<BrowserActionResult> => {
-    await page.fill(selector, text, { timeout: 5000 }).catch(() => {
-      page.keyboard.type(text).catch(() => {});
-    });
+  type: async (page: any, selector: string, text: string): Promise<BrowserActionResult> => {
+    await page.fill(selector, text, { timeout: 5000 }).catch(() => { page.keyboard.type(text).catch(() => {}); });
     await page.waitForTimeout(200);
     return { screenshot: await screenshot(page) };
   },
-
-  scroll_down: async (page: Page): Promise<BrowserActionResult> => {
-    await page.mouse.wheel(0, 600);
-    await page.waitForTimeout(300);
+  scroll_down: async (page: any): Promise<BrowserActionResult> => {
+    await page.mouse.wheel(0, 600); await page.waitForTimeout(300);
     return { screenshot: await screenshot(page) };
   },
-
-  scroll_up: async (page: Page): Promise<BrowserActionResult> => {
-    await page.mouse.wheel(0, -600);
-    await page.waitForTimeout(300);
+  scroll_up: async (page: any): Promise<BrowserActionResult> => {
+    await page.mouse.wheel(0, -600); await page.waitForTimeout(300);
     return { screenshot: await screenshot(page) };
   },
-
-  screenshot: async (page: Page): Promise<BrowserActionResult> => {
+  screenshot: async (page: any): Promise<BrowserActionResult> => {
     return { screenshot: await screenshot(page), url: page.url(), title: await page.title() };
   },
-
-  get_text: async (page: Page): Promise<BrowserActionResult> => {
+  get_text: async (page: any): Promise<BrowserActionResult> => {
     const text = await page.innerText('body').catch(() => '');
     return { text: text.slice(0, 5000), screenshot: await screenshot(page) };
   },
-
-  get_html: async (page: Page): Promise<BrowserActionResult> => {
+  get_html: async (page: any): Promise<BrowserActionResult> => {
     const html = await page.content().catch(() => '');
     return { text: html.slice(0, 5000) };
   },
-
-  execute_js: async (page: Page, script: string): Promise<BrowserActionResult> => {
-    const result = await page.evaluate(script).catch((e) => `Error: ${e.message}`);
+  execute_js: async (page: any, script: string): Promise<BrowserActionResult> => {
+    const result = await page.evaluate(script).catch((e: any) => `Error: ${e.message}`);
     return { text: String(result).slice(0, 3000), screenshot: await screenshot(page) };
   },
-
-  press_key: async (page: Page, key: string): Promise<BrowserActionResult> => {
-    await page.keyboard.press(key);
-    await page.waitForTimeout(200);
+  press_key: async (page: any, key: string): Promise<BrowserActionResult> => {
+    await page.keyboard.press(key); await page.waitForTimeout(200);
     return { screenshot: await screenshot(page) };
   },
-
-  go_back: async (page: Page): Promise<BrowserActionResult> => {
+  go_back: async (page: any): Promise<BrowserActionResult> => {
     await page.goBack({ timeout: 10000 }).catch(() => {});
     await waitForStable(page);
     return { screenshot: await screenshot(page), url: page.url() };
   },
-
-  go_forward: async (page: Page): Promise<BrowserActionResult> => {
+  go_forward: async (page: any): Promise<BrowserActionResult> => {
     await page.goForward({ timeout: 10000 }).catch(() => {});
     await waitForStable(page);
     return { screenshot: await screenshot(page), url: page.url() };
@@ -159,7 +154,8 @@ export const browserTools = {
 };
 
 export async function closeBrowser() {
-  // No modelo local, mantemos o browser singleton ligado entre tasks
-  // (custo de lançar é alto). Ele é fechado só no shutdown do processo.
-  // Cada task fecha seu próprio context ao terminar a page.
+  if (browserInstance) {
+    await browserInstance.close().catch(() => {});
+    browserInstance = null;
+  }
 }
