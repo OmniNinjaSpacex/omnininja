@@ -151,12 +151,49 @@ $BUN_BIN run db:push 2>&1
 echo "  ✅ Prisma pronto"
 
 # ============================================================
+# PASSO 6.5 — Criar SWAP (t3.small tem só 2GB RAM, build precisa de mais)
+# ============================================================
+echo ""
+echo "[6.5/9] Configurando memória SWAP..."
+SWAP_FILE="/swapfile"
+if [ ! -f "$SWAP_FILE" ]; then
+  echo "  Criando swap de 4GB..."
+  dd if=/dev/zero of="$SWAP_FILE" bs=1M count=4096 status=progress
+  chmod 600 "$SWAP_FILE"
+  mkswap "$SWAP_FILE"
+  swapon "$SWAP_FILE"
+  # Persistir após reboot
+  if ! grep -q "$SWAP_FILE" /etc/fstab; then
+    echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
+  fi
+  echo "  ✅ Swap de 4GB criado e ativado"
+else
+  swapon "$SWAP_FILE" 2>/dev/null || true
+  echo "  ✅ Swap já existe e está ativo"
+fi
+echo "  Memória atual:"
+free -h | head -3
+
+# ============================================================
 # PASSO 7 — Build (output COMPLETO para ver erros)
 # ============================================================
 echo ""
 echo "[7/9] Build do Next.js (output completo)..."
 echo "  ===================================="
-$BUN_BIN run build 2>&1
+# Usar npx next build com --no-turbopack para usar menos memória
+# (Turbopack consome mais RAM que webpack no build)
+export NODE_OPTIONS="--max-old-space-size=1536"
+$BUN_BIN run build 2>&1 || {
+  echo "  ⚠️ Build com bun falhou (provavelmente memória). Tentando com npx..."
+  # Fallback: usar npx next build diretamente
+  npx next build --no-turbopack 2>&1 || {
+    echo "  ⚠️ Tentando com node diretamente..."
+    node node_modules/.bin/next build --no-turbopack 2>&1
+  }
+  # Copiar static e public para standalone
+  cp -r "$APP_DIR/.next/static" "$APP_DIR/.next/standalone/.next/" 2>/dev/null || true
+  cp -r "$APP_DIR/public" "$APP_DIR/.next/standalone/" 2>/dev/null || true
+}
 BUILD_EXIT=$?
 echo "  ===================================="
 echo "  Build exit code: $BUILD_EXIT"
