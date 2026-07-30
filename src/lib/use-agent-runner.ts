@@ -9,11 +9,17 @@ function uid() { return Math.random().toString(36).slice(2) + Date.now().toStrin
 
 /**
  * Drives the OmniNinja experience end-to-end on the client.
- * - Classifies message (chat vs task) — Seção 11.5 / 16
- * - For tasks: creates a TaskRun, replays a scripted Event Stream into the
- *   store with realistic timing, opens the Computer panel, and streams an
- *   assistant summary. Mirrors what the server orchestrator + WebSocket
- *   gateway would do in production.
+ *
+ * 3 MODOS (igual Manus AI):
+ * - chat:      conversa normal e rapida, sem ferramentas. Vai direto para /api/chat.
+ * - agent:     fala com o usuario (normal) + usa ferramentas. Pensamento mais profundo.
+ *              Vai para /api/agent/run com mode=agent. O agente "fala" via message_notify_user.
+ * - agent_max: poder maximo. Cria sites, deploya, executa tarefas complexas.
+ *              Vai para /api/agent/run com mode=agent_max. Mais iteracoes.
+ *
+ * Em TODOS os modos o agente conversa normalmente com o usuario. A diferenca e
+ * que agent/agent_max tem acesso a ferramentas (navegador, terminal, arquivos)
+ * e "pensam" mais antes de responder.
  */
 export function useAgentRunner() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -48,24 +54,18 @@ export function useAgentRunner() {
       };
       store.pushMessage(userMsg);
 
-      // classify
-      const cls = await classify(text);
-      const isTask = cls === 'task' && mode !== 'chat';
-
-      if (!isTask) {
-        // CHAT mode — real LLM streaming via /api/chat (GLM-5.2)
+      // ===== MODO CHAT — conversa normal, rapida, sem ferramentas =====
+      if (mode === 'chat') {
         const aMsg: ChatMessage = {
-          id: uid(), role: 'assistant', content: '', model: 'glm-5.2', streaming: true, createdAt: Date.now(),
+          id: uid(), role: 'assistant', content: '', model: String(model), streaming: true, createdAt: Date.now(),
         };
         store.pushMessage(aMsg);
-        // re-read fresh messages (Zustand returns new array on setState)
         const freshMessages = useOmni.getState().messages;
         try {
-          await streamLLMChat(text, freshMessages, (chunk) => {
+          await streamLLMChat(text, freshMessages, model, (chunk) => {
             useOmni.getState().updateMessage(aMsg.id, { content: chunk });
           });
         } catch (err: any) {
-          // graceful fallback to canned reply if LLM unavailable
           const reply = chatReply(text);
           await streamText(reply, (chunk) => {
             useOmni.getState().updateMessage(aMsg.id, { content: chunk });
@@ -76,9 +76,13 @@ export function useAgentRunner() {
         return;
       }
 
-      // TASK path — REAL agent via /api/agent/run (SSE)
-      // The server runs the actual agent loop (LLM + Browserless + shell),
-      // streaming real events back. No more scripted timeline.
+      // ===== MODO AGENT / AGENT MAX — ferramentas + conversa =====
+      // O agente usa ferramentas reais (navegador, terminal, arquivos) e
+      // FALA com o usuario via message_notify_user durante a execucao.
+      // Tudo e transmitido em tempo real via SSE.
+
+      const modeLabel = mode === 'agent_max' ? 'Agent MAX' : 'Agent';
+
       store.setCurrentTask({
         id: uid(),
         goal: text,
@@ -95,24 +99,48 @@ export function useAgentRunner() {
       store.setLive(true);
       store.setReplayIndex(null);
 
-      // assistant intro message
+      // Mensagem introdutoria do assistente (conversa normal)
       const introMsg: ChatMessage = {
-        id: uid(), role: 'assistant', content: '', model, streaming: true, createdAt: Date.now(),
+        id: uid(), role: 'assistant', content: '', model: String(model), streaming: true, createdAt: Date.now(),
       };
       store.pushMessage(introMsg);
+      const introText = mode === 'agent_max'
+        ? `Modo **Agent MAX** ativado! 🚀 Vou resolver isso com poder total — posso criar sites, deployar apps, rodar código e muito mais. Acompanhe pelo painel **Computador** à direita. Deixa comigo!`
+        : `Modo **Agent** ativado! 🧠 Vou pensar com mais calma e usar ferramentas reais (navegador + terminal) para resolver isso. Acompanhe pelo painel **Computador** à direita.`;
       await streamText(
-        `Vou executar essa tarefa com o agente REAL — navegador e terminal de verdade. Acompanhe pelo painel **Computador** à direita. 🥷`,
+        introText,
         (chunk) => useOmni.getState().updateMessage(introMsg.id, { content: chunk }),
         10
       );
       useOmni.getState().updateMessage(introMsg.id, { streaming: false });
 
-      // Run the REAL agent via SSE
+      // Executa o agente REAL via SSE
+      // O agente vai "falar" com o usuario durante a execucao via message_notify_user.
+      // Essas mensagens sao exibidas no chat em tempo real (conversa natural).
       let finalSummary = '';
+      const conversationalMessages: ChatMessage[] = []; // mensagens do agente durante execucao
+
       try {
         await runRealAgent(text, mode, model, (event) => {
           const s = useOmni.getState();
           s.appendEvent(event);
+
+          // ===== STREAM MENSAGENS CONVERSACIONAIS NO CHAT =====
+          // Quando o agente usa message_notify_user, emitimos AGENT_THINKING com agent='OmniNinja'.
+          // Esses eventos viram mensagens de chat em tempo real — o usuario ve o agente "falando".
+          if (event.type === 'AGENT_THINKING' && event.agent === 'OmniNinja' && event.text) {
+            // Cria uma nova mensagem de chat para cada fala do agente
+            const talkMsg: ChatMessage = {
+              id: uid(),
+              role: 'assistant',
+              content: event.text,
+              model: String(model),
+              streaming: false,
+              createdAt: Date.now(),
+            };
+            conversationalMessages.push(talkMsg);
+            useOmni.getState().pushMessage(talkMsg);
+          }
 
           // auto-switch computer tab based on event type
           if (event.type === 'BROWSER_ACTION') {
@@ -133,9 +161,9 @@ export function useAgentRunner() {
         finalSummary = `Erro na execução: ${err.message}`;
       }
 
-      // final assistant summary message
+      // Mensagem final de resumo
       const sumMsg: ChatMessage = {
-        id: uid(), role: 'assistant', content: '', model: 'glm-5.2', streaming: true, createdAt: Date.now(),
+        id: uid(), role: 'assistant', content: '', model: String(model), streaming: true, createdAt: Date.now(),
       };
       useOmni.getState().pushMessage(sumMsg);
       await streamText(finalSummary || 'Tarefa concluída.', (chunk) => {
@@ -147,21 +175,6 @@ export function useAgentRunner() {
   );
 
   return { run, stop };
-}
-
-async function classify(text: string): Promise<'chat' | 'task'> {
-  try {
-    const res = await fetch('/api/classify', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) throw new Error('classify failed');
-    const data = await res.json();
-    return data.kind;
-  } catch {
-    return 'task';
-  }
 }
 
 /**
@@ -226,12 +239,13 @@ async function runRealAgent(
 }
 
 /**
- * Streams a real LLM chat response from /api/chat (SSE → GLM-5.2).
+ * Streams a real LLM chat response from /api/chat (SSE).
  * Falls back throws so caller can use a canned reply.
  */
 async function streamLLMChat(
   text: string,
   history: ChatMessage[],
+  model: ProviderId,
   onChunk: (full: string) => void
 ) {
   const messages = history
@@ -241,7 +255,7 @@ async function streamLLMChat(
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, model }),
   });
 
   if (!res.ok || !res.body) {
@@ -302,7 +316,7 @@ function chatReply(text: string): string {
     return 'Sou um **agente de IA autônomo** inspirado no Manus AI e no Ninja AI. Decomponho tarefas, delego a sub-agentes especializados (Browser, Code, Research, Memory, Chat) e mostro cada passo em tempo real num painel "Computador" dentro do chat.\n\nPara uma tarefa real, mude para o modo **Agent** e descreva o que precisa.';
   }
   if (t.includes('modelo') || t.includes('modelos')) {
-    return 'O OmniNinja é **model-agnostic**: orquestra 10 provedores — Claude, GPT, GLM-5.2, Gemini, Kimi K3, DeepSeek, Nemotron, MiniMax, Qwen e Grok. O seletor mostra apenas os que têm chave configurada. Se o modelo escolhido falhar, há fallback automático.';
+    return 'O OmniNinja é **model-agnostic**: orquestra 5 provedores — Claude, GPT, Gemini, Kimi e Grok via OpenRouter. O seletor mostra apenas os que têm chave configurada. Se o modelo escolhido falhar, há fallback automático.';
   }
-  return `Entendi. Isso parece uma **pergunta** — respondi direto no modo Chat.\n\nSe você quiser que eu **execute** algo de verdade (criar site, pesquisar, rodar código), mude para o modo **Agent** no seletor abaixo e envie novamente. Abrirei o painel Computador com sandbox, terminal e navegador reais. 🥷`;
+  return `Entendi. Isso parece uma **pergunta** — respondi direto no modo Chat.\n\nSe você quiser que eu **execute** algo de verdade (criar site, pesquisar, rodar código), mude para o modo **Agent** ou **Agent MAX** no seletor abaixo e envie novamente. Abrirei o painel Computador com sandbox, terminal e navegador reais. 🥷`;
 }

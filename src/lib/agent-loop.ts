@@ -1,8 +1,13 @@
 // OmniNinja — Real Agent Loop (estilo Manus)
 // O Orquestrador: usa o LLM (via OpenRouter) para decidir qual ferramenta
-// chamar a cada passo, executa, alimenta a observação de volta, repete até
+// chamar a cada passo, executa, alimenta a observacao de volta, repete ate
 // concluir a tarefa. Loop real (analisar -> escolher ferramenta -> executar
 // -> iterar), igual ao Manus AI.
+//
+// 3 MODOS (igual Manus AI):
+// - chat:      NAO usa este loop — e conversa normal via /api/chat
+// - agent:     ferramentas + fala com o usuario, pensa mais, 15 iteracoes
+// - agent_max: poder maximo, cria sites/deploy, 30 iteracoes, fala tambem
 
 import { completion, type OpenRouterModel, type ChatMessage } from './openrouter';
 import { browserTools, createPage, closeBrowser, type BrowserActionResult } from './browser-agent';
@@ -11,43 +16,59 @@ import type { AgentEvent } from './orchestrator';
 
 export interface AgentLoopOptions {
   goal: string;
-  mode: string; // chat | agent | agent_max
+  mode: string; // agent | agent_max (chat nunca chega aqui)
   model: string; // provider id (claude, chatgpt, ...) -> OpenRouterModel
   taskId: string;
   onEvent: (event: AgentEvent) => void;
 }
 
-const MAX_ITERATIONS = 20;
+// Iteracoes dinamicas por modo — agent_max tem mais rodadas para tarefas complexas
+function maxIterationsFor(mode: string): number {
+  if (mode === 'agent_max') return 30;
+  return 15; // agent
+}
 
-const SYSTEM_PROMPT = `Você é o OmniNinja, um orquestrador de agentes de IA autônomo (estilo Manus AI). Você recebe uma tarefa e decide qual ferramenta usar a cada passo, até entregar o resultado final.
+// System prompt dinamico por modo
+function systemPromptFor(mode: string, maxIter: number): string {
+  const isMax = mode === 'agent_max';
 
-FERRAMENTAS DISPONÍVEIS (responda SEMPRE em JSON válido, um único objeto):
+  const powerLine = isMax
+    ? `Voce esta no modo AGENT MAX — poder maximo. Voce pode criar sites completos, deployar aplicacoes, executar tarefas longas e complexas. Pense profundamente, decomponha problemas grandes em sub-passos, e NAO desista facilmente. Use todas as ${maxIter} iteracoes se necessario. Quando criar um site/app, sirva-o com shell_exec (background) e use deploy_expose_port para dar a URL publica ao usuario.`
+    : `Voce esta no modo AGENT — inteligente e capaz. Use ferramentas quando necessario, pense antes de agir, explique ao usuario o que esta fazendo. Voce tem ate ${maxIter} iteracoes. Seja eficiente mas cuidadoso.`;
 
-1. {"tool":"browser_navigate","args":{"url":"https://..."}}  — abre uma URL no navegador real (Chromium)
-2. {"tool":"browser_click","args":{"selector":"button.submit"}}  — clica num elemento (seletor CSS)
-3. {"tool":"browser_type","args":{"selector":"input[name=q]","text":"busca"}}  — preenche um campo
-4. {"tool":"browser_scroll_down","args":{}}  — rola a página pra baixo
-5. {"tool":"browser_scroll_up","args":{}}  — rola a página pra cima
-6. {"tool":"browser_screenshot","args":{}}  — tira screenshot e vê a página
-7. {"tool":"browser_get_text","args":{}}  — extrai o texto visível da página
-8. {"tool":"browser_execute_js","args":{"script":"document.title"}}  — executa JavaScript na página
-9. {"tool":"browser_press_key","args":{"key":"Enter"}}  — pressiona uma tecla
-10. {"tool":"shell_exec","args":{"cmd":"ls -la"}}  — executa comando bash/python/node REAL no sandbox
-11. {"tool":"file_write","args":{"path":"arquivo.txt","content":"conteúdo"}}  — cria/sobrescreve arquivo
-12. {"tool":"file_read","args":{"path":"arquivo.txt"}}  — lê conteúdo de arquivo
-13. {"tool":"info_search_web","args":{"query":"termo de busca","num":5}}  — busca na web ( DuckDuckGo HTML )
-14. {"tool":"deploy_expose_port","args":{"port":3000}}  — expõe uma porta local para acesso público
-15. {"tool":"finish","args":{"summary":"resumo do que fez"}}  — QUANDO TERMINAR a tarefa
+  return `Voce e o OmniNinja, um agente de IA autonomo (estilo Manus AI). ${powerLine}
 
-REGRAS (iguais às do Manus):
-- Responda SEMPRE com UM JSON válido, nada mais (sem markdown, sem texto fora do JSON).
-- Após cada ação, você recebe a observação (resultado). Decida a próxima com base nela.
-- Máximo ${MAX_ITERATIONS} ações. Se não conseguir terminar, use "finish" com o progresso.
-- Seja eficiente: não navegue sem propósito, não rode comandos desnecessários.
-- Para criar sites/código: use file_write com o código COMPLETO.
+REGRA DE OURO — FALE COM O USUARIO: Antes de executar acoes importantes (navegar, rodar comandos, criar arquivos), use a ferramenta "message_notify_user" para explicar o que vai fazer e por que, como se estivesse conversando. EXEMPLO: {"tool":"message_notify_user","args":{"text":"Vou pesquisar sobre o tema primeiro para te dar uma resposta fundamentada."}}. Isso deixa a experiencia natural — o usuario te ve "pensando em voz alta", igual a um humano trabalhando.
+
+FERRAMENTAS DISPONIVEIS (responda SEMPRE em JSON valido, um unico objeto):
+
+1. {"tool":"message_notify_user","args":{"text":"mensagem para o usuario"}} — FALA com o usuario (conversa normal, explica o que esta fazendo). USE SEMPRE antes de acoes importantes e para dar atualizacoes.
+2. {"tool":"browser_navigate","args":{"url":"https://..."}} — abre uma URL no navegador real (Chromium via Browserless)
+3. {"tool":"browser_click","args":{"selector":"button.submit"}} — clica num elemento (seletor CSS)
+4. {"tool":"browser_type","args":{"selector":"input[name=q]","text":"busca"}} — preenche um campo
+5. {"tool":"browser_scroll_down","args":{}} — rola a pagina pra baixo
+6. {"tool":"browser_scroll_up","args":{}} — rola a pagina pra cima
+7. {"tool":"browser_screenshot","args":{}} — tira screenshot e ve a pagina
+8. {"tool":"browser_get_text","args":{}} — extrai o texto visivel da pagina
+9. {"tool":"browser_execute_js","args":{"script":"document.title"}} — executa JavaScript na pagina
+10. {"tool":"browser_press_key","args":{"key":"Enter"}} — pressiona uma tecla
+11. {"tool":"shell_exec","args":{"cmd":"ls -la"}} — executa comando bash/python/node REAL no sandbox
+12. {"tool":"file_write","args":{"path":"arquivo.txt","content":"conteudo"}} — cria/sobrescreve arquivo
+13. {"tool":"file_read","args":{"path":"arquivo.txt"}} — le conteudo de arquivo
+14. {"tool":"info_search_web","args":{"query":"termo de busca","num":5}} — busca na web (DuckDuckGo HTML)
+15. {"tool":"deploy_expose_port","args":{"port":3000}} — expoe uma porta local para acesso publico
+16. {"tool":"finish","args":{"summary":"resumo do que fez"}} — QUANDO TERMINAR a tarefa
+
+REGRAS (iguais as do Manus):
+- Responda SEMPRE com UM JSON valido, nada mais (sem markdown, sem texto fora do JSON).
+- Apos cada acao, voce recebe a observacao (resultado). Decida a proxima com base nela.
+- Maximo ${maxIter} acoes. Se nao conseguir terminar, use "finish" com o progresso.
+- Para criar sites/codigo: use file_write com o codigo COMPLETO.
 - Para pesquisar: use info_search_web ou browser_navigate em sites relevantes, depois browser_get_text.
-- Para servir um app: crie os arquivos com file_write, instale dependências via shell_exec, rode via shell_exec em background, depois deploy_expose_port.
-- Sempre em português nos resumos e observações.`;
+- Para servir um app: crie os arquivos com file_write, instale dependencias via shell_exec, rode via shell_exec em background, depois deploy_expose_port.
+- SEMPRE que for fazer algo importante, AVISE o usuario com message_notify_user primeiro.
+- Sempre em portugues do Brasil nas mensagens ao usuario e resumos.`;
+}
 
 interface ToolCall {
   tool: string;
@@ -71,7 +92,7 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '...[truncado]' : s;
 }
 
-// Busca web simples via DuckDuckGo HTML (sem chave necessária).
+// Busca web simples via DuckDuckGo HTML (sem chave necessaria).
 async function searchWeb(query: string, num = 5): Promise<string> {
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -80,7 +101,7 @@ async function searchWeb(query: string, num = 5): Promise<string> {
     });
     if (!res.ok) return `Busca falhou (HTTP ${res.status})`;
     const html = await res.text();
-    // Extrai títulos + links + snippets do HTML do DDG
+    // Extrai titulos + links + snippets do HTML do DDG
     const results: string[] = [];
     const re = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>(.*?)<\/a>/g;
     let m: RegExpExecArray | null;
@@ -93,8 +114,8 @@ async function searchWeb(query: string, num = 5): Promise<string> {
       count++;
     }
     if (results.length === 0) {
-      // fallback: pega qualquer texto útil
-      return `Busca por "${query}" não retornou resultados estruturados. Tente browser_navigate em um site específico.`;
+      // fallback: pega qualquer texto util
+      return `Busca por "${query}" nao retornou resultados estruturados. Tente browser_navigate em um site especifico.`;
     }
     return results.join('\n\n');
   } catch (err: any) {
@@ -103,12 +124,14 @@ async function searchWeb(query: string, num = 5): Promise<string> {
 }
 
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
-  const { goal, taskId, onEvent, model } = opts;
+  const { goal, taskId, onEvent, model, mode } = opts;
+  const MAX_ITERATIONS = maxIterationsFor(mode);
+  const SYSTEM_PROMPT = systemPromptFor(mode, MAX_ITERATIONS);
 
   onEvent({ type: 'TASK_STARTED', taskId, goal, ts: Date.now() });
   const planSteps = [
     { id: 's1', title: 'Analisar objetivo', agent: 'Chat' as const, instruction: goal },
-    { id: 's2', title: 'Executar ações', agent: 'Code' as const, instruction: 'Usar ferramentas' },
+    { id: 's2', title: 'Executar acoes', agent: 'Code' as const, instruction: 'Usar ferramentas' },
     { id: 's3', title: 'Entregar resultado', agent: 'Memory' as const, instruction: 'Resumir' },
   ];
   onEvent({ type: 'PLAN_CREATED', taskId, steps: planSteps, ts: Date.now() });
@@ -117,7 +140,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
 
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: `Tarefa: ${goal}\n\nDecida a primeira ação (responda em JSON):` },
+    { role: 'user', content: `Tarefa: ${goal}\n\nComece avisando o usuario o que vai fazer (use message_notify_user), depois execute. Responda em JSON:` },
   ];
 
   let page: any = null;
@@ -127,15 +150,15 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       stepNum = i + 1;
 
-      onEvent({ type: 'AGENT_THINKING', taskId, agent: 'Orchestrator', text: `Decidindo ação ${stepNum}...`, ts: Date.now() });
+      onEvent({ type: 'AGENT_THINKING', taskId, agent: 'Orchestrator', text: `Pensando... (passo ${stepNum}/${MAX_ITERATIONS})`, ts: Date.now() });
 
       let llmResponse = '';
       try {
         const result = await completion({
           messages,
           model: providerModel,
-          temperature: 0.4,
-          maxTokens: 256,
+          temperature: 0.5,
+          maxTokens: 300,
           fallback: true,
         });
         llmResponse = result.content;
@@ -147,14 +170,15 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       const toolCall = parseToolCall(llmResponse);
       if (!toolCall) {
         messages.push({ role: 'assistant', content: llmResponse });
-        messages.push({ role: 'user', content: 'Responda apenas com JSON válido da próxima ferramenta.' });
+        messages.push({ role: 'user', content: 'Responda apenas com JSON valido da proxima ferramenta.' });
         continue;
       }
 
       messages.push({ role: 'assistant', content: llmResponse });
 
+      // finish — tarefa concluida
       if (toolCall.tool === 'finish') {
-        const summary = toolCall.args?.summary ?? 'Tarefa concluída.';
+        const summary = toolCall.args?.summary ?? 'Tarefa concluida.';
         onEvent({ type: 'STEP_COMPLETED', taskId, stepId: `s${stepNum}`, success: true, result: summary, ts: Date.now() });
         onEvent({
           type: 'TASK_COMPLETED',
@@ -164,6 +188,15 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
           ts: Date.now(),
         });
         return;
+      }
+
+      // message_notify_user — o agente FALA com o usuario (conversa natural)
+      if (toolCall.tool === 'message_notify_user') {
+        const userMsg = toolCall.args?.text ?? '';
+        // Emite um evento AGENT_THINKING com a mensagem — o client vai exibir no chat
+        onEvent({ type: 'AGENT_THINKING', taskId, agent: 'OmniNinja', text: userMsg, ts: Date.now() });
+        messages.push({ role: 'user', content: `Observacao: Mensagem enviada ao usuario. Continue com a proxima acao (JSON):` });
+        continue;
       }
 
       onEvent({
@@ -181,7 +214,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       try {
         if (toolCall.tool.startsWith('browser_')) {
           if (!page) {
-            onEvent({ type: 'AGENT_THINKING', taskId, agent: 'Browser', text: 'Abrindo Chromium local...', ts: Date.now() });
+            onEvent({ type: 'AGENT_THINKING', taskId, agent: 'Browser', text: 'Abrindo navegador (Browserless/Chromium)...', ts: Date.now() });
             page = await createPage();
           }
           const toolName = toolCall.tool.replace('browser_', '');
@@ -190,7 +223,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
           switch (toolName) {
             case 'navigate':
               browserResult = await browserTools.navigate(page, args.url);
-              observation = `Página carregada: ${browserResult.url}. Título: ${browserResult.title}`;
+              observation = `Pagina carregada: ${browserResult.url}. Titulo: ${browserResult.title}`;
               break;
             case 'click':
               browserResult = await browserTools.click(page, args.selector);
@@ -214,7 +247,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
               break;
             case 'get_text':
               browserResult = await browserTools.get_text(page);
-              observation = `Texto da página: ${truncate(browserResult.text ?? '', 2000)}`;
+              observation = `Texto da pagina: ${truncate(browserResult.text ?? '', 2000)}`;
               break;
             case 'get_html':
               browserResult = await browserTools.get_html(page);
@@ -256,7 +289,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
             exitCode: result.exitCode,
             ts: Date.now(),
           });
-          observation = `Comando: ${toolCall.args.cmd}\nSaída: ${truncate(result.stdout || result.stderr, 2000)}\nExit code: ${result.exitCode}`;
+          observation = `Comando: ${toolCall.args.cmd}\nSaida: ${truncate(result.stdout || result.stderr, 2000)}\nExit code: ${result.exitCode}`;
         } else if (toolCall.tool === 'file_write') {
           const result = fileWrite(taskId, toolCall.args.path, toolCall.args.content);
           onEvent({
@@ -269,7 +302,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
           observation = `Arquivo criado: ${result.path} (${result.bytes} bytes)`;
         } else if (toolCall.tool === 'file_read') {
           const content = fileRead(taskId, toolCall.args.path);
-          observation = `Conteúdo de ${toolCall.args.path}: ${truncate(content, 2000)}`;
+          observation = `Conteudo de ${toolCall.args.path}: ${truncate(content, 2000)}`;
         } else if (toolCall.tool === 'info_search_web') {
           const results = await searchWeb(toolCall.args.query, toolCall.args.num ?? 5);
           observation = `Resultados da busca por "${toolCall.args.query}":\n${results}`;
@@ -284,7 +317,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
           });
         } else if (toolCall.tool === 'deploy_expose_port') {
           const exposed = await exposePort(taskId, toolCall.args.port);
-          observation = `Porta ${toolCall.args.port} exposta. URL pública: ${exposed.url}`;
+          observation = `Porta ${toolCall.args.port} exposta. URL publica: ${exposed.url}`;
           onEvent({
             type: 'FILE_CHANGED',
             taskId,
@@ -293,7 +326,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
             ts: Date.now(),
           });
         } else {
-          observation = `Ferramenta não reconhecida: ${toolCall.tool}`;
+          observation = `Ferramenta nao reconhecida: ${toolCall.tool}`;
         }
       } catch (err: any) {
         observation = `Erro ao executar ${toolCall.tool}: ${err.message}`;
@@ -302,13 +335,13 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
 
       onEvent({ type: 'STEP_COMPLETED', taskId, stepId: `s${stepNum}`, success: true, result: observation.slice(0, 200), ts: Date.now() });
 
-      messages.push({ role: 'user', content: `Observação: ${observation}\n\nPróxima ação (JSON):` });
+      messages.push({ role: 'user', content: `Observacao: ${observation}\n\nProxima acao (JSON):` });
     }
 
     onEvent({
       type: 'TASK_COMPLETED',
       taskId,
-      summary: `Tarefa interrompida após ${MAX_ITERATIONS} ações. Veja o progresso no painel.`,
+      summary: `Tarefa interrompida apos ${MAX_ITERATIONS} acoes. Veja o progresso no painel.`,
       artifacts: [],
       ts: Date.now(),
     });

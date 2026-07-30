@@ -12,6 +12,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+// Modo chat: respostas mais ricas e completas (conversa natural)
+const CHAT_MAX_TOKENS = 1024;
+
 const SYSTEM_PROMPT = `Você é o OmniNinja, um agente de IA autônomo inspirado no Manus AI e no Ninja AI. Você pode responder diretamente (modo Chat) ou abrir o "Computador" com sandbox, terminal e navegador reais para executar tarefas (modo Agent / Agent MAX).
 
 Características:
@@ -65,7 +68,7 @@ export async function POST(req: Request) {
       try {
         send({ type: 'start', credits: consume.remaining });
         const result = await completionStream(
-          { messages, model, temperature: 0.7, maxTokens: 256, fallback: true },
+          { messages, model, temperature: 0.7, maxTokens: CHAT_MAX_TOKENS, fallback: true },
           (delta) => {
             fullText += delta;
             send({ type: 'delta', text: delta });

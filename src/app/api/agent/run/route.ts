@@ -10,7 +10,7 @@ import type { AgentEvent } from '@/lib/orchestrator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 min max
+export const maxDuration = 600; // 10 min max — agent_max tasks podem ser longas
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();

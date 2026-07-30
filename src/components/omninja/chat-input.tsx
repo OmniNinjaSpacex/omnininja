@@ -92,7 +92,7 @@ export function ChatInput() {
           <ModePill mode="agent_max" current={mode} setMode={setMode} />
           <span className="ml-auto flex items-center gap-2">
             <Badge variant="outline" className="gap-1 border-border/60 text-[10px] text-muted-foreground">
-              <Sparkles className="h-2.5 w-2.5" /> {mode === 'chat' ? 'Resposta direta' : mode === 'agent' ? '1 sub-agente' : 'Paralelo'}
+              <Sparkles className="h-2.5 w-2.5" /> {mode === 'chat' ? 'Conversa rápida' : mode === 'agent' ? 'Pensa + ferramentas' : 'Poder máximo'}
             </Badge>
           </span>
         </div>
@@ -111,7 +111,7 @@ export function ChatInput() {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder={mode === 'chat' ? 'Pergunte qualquer coisa…' : 'Ask Ninja to create anything…'}
+            placeholder={mode === 'chat' ? 'Pergunte qualquer coisa…' : mode === 'agent' ? 'Descreva a tarefa — vou pensar e usar ferramentas…' : 'Descreva algo complexo — posso criar sites, deployar, executar…'}
             className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
           />
 
