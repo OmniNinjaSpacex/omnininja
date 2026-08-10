@@ -14,9 +14,23 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: omnininja_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d omnininja_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       CI: '1'
-      DATABASE_URL: 'file:./prisma/ci.db'
+      DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/omnininja_ci?schema=public'
       NEXTAUTH_SECRET: 'ci-only-placeholder-not-for-production'
       OPENAI_API_KEY: 'ci-only-placeholder-not-for-production'
       OMNINJA_MODEL: 'gpt-5.1'
@@ -34,6 +48,9 @@ jobs:
 
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: Validate PostgreSQL schema
+        run: npx prisma db push --skip-generate
 
       - name: Build Next.js
         run: npm run build

@@ -1,4 +1,4 @@
-// OmniNinja — Prisma schema (SQLite)
+// OmniNinja — Prisma schema (PostgreSQL)
 // Autonomous AI agent platform: users, tasks, messages, credits, integrations,
 // projects, artifacts, and an append-only event stream for replay.
 
@@ -7,7 +7,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -116,7 +116,7 @@ model Artifact {
   createdAt   DateTime @default(now())
 }
 
-// Scheduled / recurring tasks (Seção 10.6 — "Agendado" sidebar item)
+// Scheduled / recurring tasks
 model ScheduledTask {
   id          String   @id @default(cuid())
   userId      String
