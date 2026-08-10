@@ -20,6 +20,12 @@ export interface ChatMessage {
   createdAt: number;
 }
 
+export interface BrowserSessionState {
+  liveURL: string;
+  browserSessionTicket?: string;
+  expiresAt?: number;
+}
+
 export interface TaskRun {
   id: string;
   goal: string;
@@ -33,45 +39,40 @@ export interface TaskRun {
   summary?: string;
   startedAt: number;
   finishedAt?: number;
-  currentScreenshot?: string; // base64 PNG from real browser
+  currentScreenshot?: string;
+  browserSession?: BrowserSessionState;
 }
 
 interface OmniState {
-  // navigation
   view: View;
   setView: (v: View) => void;
 
-  // user (mirrors server demo user)
   user: { name: string; email: string; tier: string; credits: number; bonusCredits: number } | null;
   setUser: (u: OmniState['user']) => void;
 
-  // chat
   messages: ChatMessage[];
   pushMessage: (m: ChatMessage) => void;
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearMessages: () => void;
 
-  // model + mode
   model: ProviderId;
   setModel: (m: ProviderId) => void;
   mode: AgentMode;
   setMode: (m: AgentMode) => void;
 
-  // configured providers (client mirror)
   configuredProviders: ProviderId[];
   setConfiguredProviders: (p: ProviderId[]) => void;
   demoMode: boolean;
   setDemoMode: (v: boolean) => void;
 
-  // task run
   currentTask: TaskRun | null;
   setCurrentTask: (t: TaskRun | null) => void;
   appendEvent: (e: AgentEvent) => void;
   updateTaskStatus: (s: TaskRun['status']) => void;
   incStepsDone: () => void;
   setScreenshot: (s: string | undefined) => void;
+  setBrowserSession: (session: BrowserSessionState | undefined) => void;
 
-  // computer panel
   computerOpen: boolean;
   setComputerOpen: (v: boolean) => void;
   computerTab: ComputerTab;
@@ -79,13 +80,11 @@ interface OmniState {
   computerFullscreen: boolean;
   toggleComputerFullscreen: () => void;
 
-  // replay
   replayIndex: number | null;
   setReplayIndex: (i: number | null) => void;
   live: boolean;
   setLive: (v: boolean) => void;
 
-  // sidebar (mobile)
   sidebarOpen: boolean;
   setSidebarOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
 }
@@ -105,64 +104,97 @@ export const useOmni = create<OmniState>((set) => ({
     })),
   clearMessages: () => set({ messages: [] }),
 
-  model: 'glm',
+  // OpenAI is the current real backend. Additional providers can be added when
+  // their real server integrations are implemented and configured.
+  model: 'chatgpt',
   setModel: (m) => set({ model: m }),
   mode: 'agent',
   setMode: (m) => set({ mode: m }),
 
-  configuredProviders: ['glm', 'claude', 'chatgpt', 'gemini', 'kimi'],
+  configuredProviders: [],
   setConfiguredProviders: (p) => set({ configuredProviders: p }),
   demoMode: false,
   setDemoMode: (v) => set({ demoMode: v }),
 
   currentTask: null,
   setCurrentTask: (t) => set({ currentTask: t }),
-  appendEvent: (e) =>
-    set((s) => {
-      if (!s.currentTask) return s;
-      const events = [...s.currentTask.events, e];
-      let stepsDone = s.currentTask.stepsDone;
-      if (e.type === 'STEP_COMPLETED') stepsDone += 1;
-      let status = s.currentTask.status;
-      let finishedAt = s.currentTask.finishedAt;
-      let summary = s.currentTask.summary;
-      let artifacts = s.currentTask.artifacts;
-      if (e.type === 'TASK_COMPLETED') {
+  appendEvent: (event) =>
+    set((state) => {
+      if (!state.currentTask) return state;
+
+      const events = [...state.currentTask.events, event];
+      let stepsDone = state.currentTask.stepsDone;
+      let status = state.currentTask.status;
+      let finishedAt = state.currentTask.finishedAt;
+      let summary = state.currentTask.summary;
+      let artifacts = state.currentTask.artifacts;
+
+      if (event.type === 'STEP_COMPLETED') stepsDone += 1;
+      if (event.type === 'TASK_COMPLETED') {
         status = 'completed';
-        finishedAt = e.ts;
-        summary = e.summary;
-        artifacts = e.artifacts;
-      } else if (e.type === 'TASK_FAILED') {
+        finishedAt = event.ts;
+        summary = event.summary;
+        artifacts = event.artifacts;
+      } else if (event.type === 'TASK_FAILED') {
         status = 'failed';
-        finishedAt = e.ts;
-      } else if (e.type === 'STEP_STARTED' || e.type === 'PLAN_CREATED') {
+        finishedAt = event.ts;
+      } else if (event.type === 'STEP_STARTED' || event.type === 'PLAN_CREATED') {
         status = 'running';
       }
-      return { currentTask: { ...s.currentTask, events, stepsDone, status, finishedAt, summary, artifacts } };
+
+      return {
+        currentTask: {
+          ...state.currentTask,
+          events,
+          stepsDone,
+          status,
+          finishedAt,
+          summary,
+          artifacts,
+        },
+      };
     }),
-  updateTaskStatus: (st) =>
-    set((s) => (s.currentTask ? { currentTask: { ...s.currentTask, status: st } } : s)),
-  incStepsDone: () =>
-    set((s) =>
-      s.currentTask ? { currentTask: { ...s.currentTask, stepsDone: s.currentTask.stepsDone + 1 } } : s
+  updateTaskStatus: (status) =>
+    set((state) =>
+      state.currentTask
+        ? { currentTask: { ...state.currentTask, status } }
+        : state,
     ),
-  setScreenshot: (sc) =>
-    set((s) =>
-      s.currentTask ? { currentTask: { ...s.currentTask, currentScreenshot: sc } } : s
+  incStepsDone: () =>
+    set((state) =>
+      state.currentTask
+        ? { currentTask: { ...state.currentTask, stepsDone: state.currentTask.stepsDone + 1 } }
+        : state,
+    ),
+  setScreenshot: (currentScreenshot) =>
+    set((state) =>
+      state.currentTask
+        ? { currentTask: { ...state.currentTask, currentScreenshot } }
+        : state,
+    ),
+  setBrowserSession: (browserSession) =>
+    set((state) =>
+      state.currentTask
+        ? { currentTask: { ...state.currentTask, browserSession } }
+        : state,
     ),
 
   computerOpen: false,
-  setComputerOpen: (v) => set({ computerOpen: v }),
+  setComputerOpen: (computerOpen) => set({ computerOpen }),
   computerTab: 'browser',
-  setComputerTab: (t) => set({ computerTab: t }),
+  setComputerTab: (computerTab) => set({ computerTab }),
   computerFullscreen: false,
-  toggleComputerFullscreen: () => set((s) => ({ computerFullscreen: !s.computerFullscreen })),
+  toggleComputerFullscreen: () =>
+    set((state) => ({ computerFullscreen: !state.computerFullscreen })),
 
   replayIndex: null,
-  setReplayIndex: (i) => set({ replayIndex: i }),
+  setReplayIndex: (replayIndex) => set({ replayIndex }),
   live: true,
-  setLive: (v) => set({ live: v }),
+  setLive: (live) => set({ live }),
 
   sidebarOpen: false,
-  setSidebarOpen: (v) => set((state) => ({ sidebarOpen: typeof v === 'function' ? v(state.sidebarOpen) : v })),
+  setSidebarOpen: (value) =>
+    set((state) => ({
+      sidebarOpen: typeof value === 'function' ? value(state.sidebarOpen) : value,
+    })),
 }));
