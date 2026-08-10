@@ -35,7 +35,7 @@ type OpenAIResponse = {
 };
 
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.1';
+const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.1';
 
 const EMPTY_SCHEMA = {
   type: 'object',
@@ -240,7 +240,7 @@ async function requestOpenAI(
       'X-Client-Request-Id': `omnininja-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
+      model: OMNINJA_MODEL,
       instructions: instructions(effort, thinkingEnabled),
       input,
       tools: TOOLS,
