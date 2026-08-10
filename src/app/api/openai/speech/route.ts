@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       model: OPENAI_SERVICE_MODELS.speech,
       voice,
       input,
-      format: 'mp3',
+      response_format: 'mp3',
       instructions: 'Fale em português brasileiro de forma natural, clara e amigável.',
     }),
     cache: 'no-store',
