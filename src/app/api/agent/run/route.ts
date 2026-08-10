@@ -7,12 +7,18 @@ import { consumeCredits, CREDIT_COSTS } from '@/lib/credits';
 import { db } from '@/lib/db';
 import { runAgentLoop } from '@/lib/agent-loop';
 import { runOpenAIAgentLoop } from '@/lib/openai-agent-loop';
-import { runWithBrowserSession } from '@/lib/browser-agent';
+import { createInteractiveBrowserSession, runWithBrowserSession } from '@/lib/browser-agent';
 import type { AgentEvent } from '@/lib/orchestrator';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
+
+function browserReconnectTimeout(): number {
+  const value = Number(process.env.BROWSERLESS_RECONNECT_TIMEOUT_MS || 10000);
+  if (!Number.isFinite(value)) return 10000;
+  return Math.max(5000, Math.min(value, 300000));
+}
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
@@ -20,7 +26,7 @@ export async function POST(req: Request) {
   const goal = body.goal;
   const mode = body.mode || 'agent';
   const model = body.model || 'chatgpt';
-  const browserWSEndpoint = typeof body.browserWSEndpoint === 'string'
+  const requestedBrowserWSEndpoint = typeof body.browserWSEndpoint === 'string'
     ? body.browserWSEndpoint
     : undefined;
 
@@ -92,6 +98,33 @@ export async function POST(req: Request) {
       };
 
       try {
+        let browserWSEndpoint = requestedBrowserWSEndpoint;
+        let browserLiveURL: string | undefined;
+        let browserExpiresInMs: number | undefined;
+
+        // Each agent task gets its own Browserless session when Browserless is configured.
+        // A client-provided reconnect endpoint takes precedence (human takeover/login flow).
+        if (!browserWSEndpoint && process.env.BROWSERLESS_API_KEY?.trim()) {
+          try {
+            const session = await createInteractiveBrowserSession(
+              'https://www.google.com/',
+              browserReconnectTimeout(),
+            );
+            browserWSEndpoint = session.browserWSEndpoint;
+            browserLiveURL = session.liveURL;
+            browserExpiresInMs = session.expiresInMs;
+          } catch (browserError: any) {
+            // Do not kill the task: browser-agent can still attempt its normal Browserless/local fallback.
+            onEvent({
+              type: 'AGENT_THINKING',
+              taskId,
+              agent: 'Browser',
+              text: `Sessao interativa indisponivel; usando fallback de navegador: ${browserError?.message || 'erro desconhecido'}`,
+              ts: Date.now(),
+            });
+          }
+        }
+
         send({
           type: 'start',
           taskId,
@@ -100,6 +133,15 @@ export async function POST(req: Request) {
           model: effectiveModel,
           browserTakeover: Boolean(browserWSEndpoint),
         });
+
+        if (browserLiveURL) {
+          send({
+            type: 'browser_session',
+            taskId,
+            liveURL: browserLiveURL,
+            expiresInMs: browserExpiresInMs,
+          });
+        }
 
         const executeAgent = async () => {
           if (useStructuredOpenAI) {
