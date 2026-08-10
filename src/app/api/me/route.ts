@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getCreditBalance } from '@/lib/credits';
 
-// Truthful capability snapshot. The public product exposes one model identity:
-// OMNINJA. Provider implementation details remain server-side.
+// Public capability snapshot for the single OMNINJA product identity.
+// Provider implementation details stay server-side.
 export async function GET() {
   const user = await getCurrentUser();
   const balance = await getCreditBalance(user.id);
@@ -22,8 +22,6 @@ export async function GET() {
       role: user.role,
     },
     model: openAIReady ? 'OMNINJA' : null,
-    providers: openAIReady ? ['chatgpt'] : [],
-    demoMode: false,
     capabilities: {
       chat: openAIReady,
       tools: openAIReady,

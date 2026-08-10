@@ -5,10 +5,8 @@ import type { AgentEvent, PlanStep, Artifact } from '@/lib/orchestrator';
 export type { AgentEvent } from '@/lib/orchestrator';
 
 export type View = 'landing' | 'workspace';
-export type AgentMode = 'chat' | 'agent' | 'agent_max';
+export type AgentMode = 'chat' | 'agent';
 export type ComputerTab = 'code' | 'preview' | 'browser' | 'terminal';
-// OMNINJA is the only public model. OpenAI is the only model provider kept in
-// product state; Browserless/AI Lab are execution infrastructure, not models.
 export type ProviderId = 'openai';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
@@ -85,11 +83,6 @@ interface OmniState {
   thinkingEnabled: boolean;
   setThinkingEnabled: (enabled: boolean) => void;
 
-  configuredProviders: ProviderId[];
-  setConfiguredProviders: (p: ProviderId[]) => void;
-  demoMode: boolean;
-  setDemoMode: (v: boolean) => void;
-
   currentTask: TaskRun | null;
   setCurrentTask: (t: TaskRun | null) => void;
   appendEvent: (e: AgentEvent) => void;
@@ -116,36 +109,31 @@ interface OmniState {
 
 export const useOmni = create<OmniState>((set) => ({
   view: 'landing',
-  setView: (v) => set({ view: v }),
+  setView: (view) => set({ view }),
 
   user: null,
-  setUser: (u) => set({ user: u }),
+  setUser: (user) => set({ user }),
 
   messages: [],
-  pushMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
+  pushMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   updateMessage: (id, patch) =>
-    set((s) => ({
-      messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    set((state) => ({
+      messages: state.messages.map((message) => (message.id === id ? { ...message, ...patch } : message)),
     })),
   clearMessages: () => set({ messages: [] }),
 
   model: 'openai',
-  setModel: (m) => set({ model: m }),
+  setModel: (model) => set({ model }),
   mode: 'agent',
-  setMode: (m) => set({ mode: m }),
+  setMode: (mode) => set({ mode }),
 
   reasoningEffort: 'medium',
   setReasoningEffort: (reasoningEffort) => set({ reasoningEffort }),
   thinkingEnabled: true,
   setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
 
-  configuredProviders: ['openai'],
-  setConfiguredProviders: (p) => set({ configuredProviders: p.includes('openai') ? ['openai'] : [] }),
-  demoMode: false,
-  setDemoMode: (v) => set({ demoMode: v }),
-
   currentTask: null,
-  setCurrentTask: (t) => set({ currentTask: t }),
+  setCurrentTask: (currentTask) => set({ currentTask }),
   appendEvent: (event) =>
     set((state) => {
       if (!state.currentTask) return state;
@@ -184,9 +172,7 @@ export const useOmni = create<OmniState>((set) => ({
     }),
   updateTaskStatus: (status) =>
     set((state) =>
-      state.currentTask
-        ? { currentTask: { ...state.currentTask, status } }
-        : state,
+      state.currentTask ? { currentTask: { ...state.currentTask, status } } : state,
     ),
   incStepsDone: () =>
     set((state) =>
@@ -196,15 +182,11 @@ export const useOmni = create<OmniState>((set) => ({
     ),
   setScreenshot: (currentScreenshot) =>
     set((state) =>
-      state.currentTask
-        ? { currentTask: { ...state.currentTask, currentScreenshot } }
-        : state,
+      state.currentTask ? { currentTask: { ...state.currentTask, currentScreenshot } } : state,
     ),
   setBrowserSession: (browserSession) =>
     set((state) =>
-      state.currentTask
-        ? { currentTask: { ...state.currentTask, browserSession } }
-        : state,
+      state.currentTask ? { currentTask: { ...state.currentTask, browserSession } } : state,
     ),
 
   computerOpen: false,
@@ -212,8 +194,7 @@ export const useOmni = create<OmniState>((set) => ({
   computerTab: 'browser',
   setComputerTab: (computerTab) => set({ computerTab }),
   computerFullscreen: false,
-  toggleComputerFullscreen: () =>
-    set((state) => ({ computerFullscreen: !state.computerFullscreen })),
+  toggleComputerFullscreen: () => set((state) => ({ computerFullscreen: !state.computerFullscreen })),
 
   replayIndex: null,
   setReplayIndex: (replayIndex) => set({ replayIndex }),

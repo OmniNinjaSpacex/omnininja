@@ -32,6 +32,20 @@ Serviços OpenAI integrados ou preparados:
 
 Não reintroduzir Claude, Gemini, Kimi, Grok, DeepSeek, GLM, Qwen, MiniMax, Nemotron ou OpenRouter como modelos públicos/alternativos sem uma decisão explícita futura do dono do projeto.
 
+## Runtime único
+
+A única superfície conversacional de execução é o fluxo unificado de `/api/omnininja/respond` + `src/lib/omnininja-runtime.ts`.
+
+Arquitetura legada removida e que não deve ser recriada:
+
+- `/api/agent/run`;
+- `openai-agent-loop.ts` paralelo;
+- `Agent MAX`;
+- seleção pública de providers/modelos;
+- `demoMode` e `configuredProviders`;
+- Browserless takeover tickets da UI antiga;
+- timelines simuladas e consoles de ferramentas voltados ao usuário.
+
 ## Execução privada estilo Manus
 
 Algumas capacidades precisam de infraestrutura além do modelo:
@@ -89,4 +103,5 @@ Ao continuar este projeto:
 4. preserve OpenAI como único provedor de modelos;
 5. preserve Browserless/AI Lab apenas como infraestrutura de execução;
 6. mantenha a experiência de chat simples com ferramentas internas invisíveis;
-7. valide Prisma/PostgreSQL e `next build` antes de mesclar mudanças.
+7. não recrie rotas, estados ou UIs marcados acima como arquitetura legada removida;
+8. valide Prisma/PostgreSQL e `next build` antes de mesclar mudanças.

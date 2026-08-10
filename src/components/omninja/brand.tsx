@@ -32,11 +32,3 @@ export function Wordmark({ className }: { className?: string }) {
     </span>
   );
 }
-
-export function ProviderGlyph({ id, size = 16, className }: { id: string; size?: number; className?: string }) {
-  return (
-    <span className={cn('inline-flex items-center justify-center rounded-md border border-cyan-300/20 bg-cyan-300/[0.06] font-mono text-[9px] font-bold text-cyan-300', className)} style={{ width: size, height: size }}>
-      {String(id || 'O').slice(0, 1).toUpperCase()}
-    </span>
-  );
-}
