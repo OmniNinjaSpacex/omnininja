@@ -8,6 +8,10 @@ export const maxDuration = 120;
 const ALLOWED_SECONDS = new Set(['4', '8', '12']);
 const ALLOWED_SIZES = new Set(['720x1280', '1280x720', '1024x1792', '1792x1024']);
 
+function validVideoId(value: string | null): value is string {
+  return Boolean(value && /^video_[A-Za-z0-9_-]+$/.test(value));
+}
+
 export async function POST(req: Request) {
   await getCurrentUser();
   const body = await req.json().catch(() => ({} as any));
@@ -48,9 +52,31 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   await getCurrentUser();
-  const id = new URL(req.url).searchParams.get('id')?.trim();
-  if (!id || !/^video_[A-Za-z0-9_-]+$/.test(id)) {
+  const url = new URL(req.url);
+  const id = url.searchParams.get('id')?.trim() || null;
+  if (!validVideoId(id)) {
     return Response.json({ error: 'valid video id required' }, { status: 400 });
+  }
+
+  if (url.searchParams.get('content') === '1') {
+    const response = await fetch(`${OPENAI_BASE_URL}/videos/${encodeURIComponent(id)}/content`, {
+      headers: { authorization: `Bearer ${requireOpenAIKey()}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (!response.ok || !response.body) {
+      const detail = await response.text().catch(() => '');
+      return Response.json({ error: detail.slice(0, 500) || 'Vídeo ainda não disponível' }, { status: 502 });
+    }
+
+    return new Response(response.body, {
+      headers: {
+        'content-type': response.headers.get('content-type') || 'video/mp4',
+        'cache-control': 'private, no-store',
+        'content-disposition': 'inline; filename="omninja-video.mp4"',
+      },
+    });
   }
 
   const response = await fetch(`${OPENAI_BASE_URL}/videos/${encodeURIComponent(id)}`, {
