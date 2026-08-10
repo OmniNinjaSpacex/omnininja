@@ -11,20 +11,22 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      BROWSERLESS_API_KEY: ${{ secrets.BROWSERLESS_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate required Netlify secrets
+      - name: Validate the only required Netlify secret
         shell: bash
         run: |
           set -euo pipefail
           test -n "${NETLIFY_AUTH_TOKEN:-}" || (echo "NETLIFY_AUTH_TOKEN is missing" >&2; exit 1)
-          test -n "${NETLIFY_SITE_ID:-}" || (echo "NETLIFY_SITE_ID is missing" >&2; exit 1)
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -35,8 +37,96 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create or reuse OmniNinja Netlify project
+        id: site
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
+          PREFIX="omnininja-${OWNER}"
+          echo "Looking for a Netlify project beginning with: $PREFIX"
+
+          SEARCH_JSON="$(npx netlify-cli@latest sites:search "$PREFIX" --json --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || printf '[]')"
+          SITE_ID="$(printf '%s' "$SEARCH_JSON" | node -e '
+            let raw=""; process.stdin.on("data",d=>raw+=d).on("end",()=>{
+              try {
+                const parsed=JSON.parse(raw||"[]");
+                const items=Array.isArray(parsed)?parsed:(parsed.sites||parsed.results||[]);
+                const prefix=process.env.SITE_PREFIX;
+                const found=items.find(x => String(x.name||x.site_name||"").startsWith(prefix));
+                process.stdout.write(found ? String(found.id||found.site_id||"") : "");
+              } catch { process.stdout.write(""); }
+            });
+          ' SITE_PREFIX="$PREFIX")"
+
+          if [ -z "$SITE_ID" ]; then
+            SUFFIX="$(printf '%s' "$GITHUB_SHA" | cut -c1-8)"
+            SITE_NAME="${PREFIX}-${SUFFIX}"
+            echo "No existing project found. Creating: $SITE_NAME"
+            CREATE_JSON="$(npx netlify-cli@latest sites:create --name "$SITE_NAME" --json --auth "$NETLIFY_AUTH_TOKEN")"
+            SITE_ID="$(printf '%s' "$CREATE_JSON" | node -e '
+              let raw=""; process.stdin.on("data",d=>raw+=d).on("end",()=>{
+                const x=JSON.parse(raw);
+                process.stdout.write(String(x.id||x.site_id||x.siteId||""));
+              });
+            ')"
+          else
+            echo "Reusing existing Netlify project: $SITE_ID"
+            npx netlify-cli@latest link --id "$SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          fi
+
+          test -n "$SITE_ID" || (echo "Could not determine Netlify Site ID" >&2; exit 1)
+          echo "NETLIFY_SITE_ID=$SITE_ID" >> "$GITHUB_ENV"
+          echo "site_id=$SITE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Configure non-secret OmniNinja runtime settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx netlify-cli@latest env:set OMNINJA_MODEL gpt-5.1 --context production --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --force
+          npx netlify-cli@latest env:set OPENAI_BASE_URL https://api.openai.com/v1 --context production --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --force
+
+      - name: Copy optional app secrets to Netlify when already stored in GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          set_secret () {
+            key="$1"
+            value="$2"
+            if [ -n "$value" ]; then
+              npx netlify-cli@latest env:set "$key" "$value" --context production --secret --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --force >/dev/null
+              echo "$key configured"
+            else
+              echo "$key not present in GitHub Secrets; skipping"
+            fi
+          }
+          set_secret OPENAI_API_KEY "${OPENAI_API_KEY:-}"
+          set_secret BROWSERLESS_API_KEY "${BROWSERLESS_API_KEY:-}"
+          set_secret DATABASE_URL "${DATABASE_URL:-}"
+          set_secret NEXTAUTH_SECRET "${NEXTAUTH_SECRET:-}"
+
+      - name: Link project
+        run: npx netlify-cli@latest link --id "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+
       - name: Build with Netlify
-        run: npx netlify-cli@latest build
+        run: npx netlify-cli@latest build --auth "$NETLIFY_AUTH_TOKEN"
 
       - name: Deploy production
-        run: npx netlify-cli@latest deploy --prod
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx netlify-cli@latest deploy --prod --auth "$NETLIFY_AUTH_TOKEN" --json | tee /tmp/netlify-deploy.json
+
+      - name: Print public deployment URL
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const raw = fs.readFileSync('/tmp/netlify-deploy.json','utf8');
+          const start = raw.indexOf('{');
+          if (start < 0) process.exit(0);
+          const data = JSON.parse(raw.slice(start));
+          console.log('Public URL:', data.url || data.deploy_url || data.site_url || 'see Netlify deploy output');
+          NODE
