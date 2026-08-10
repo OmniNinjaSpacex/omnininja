@@ -1,7 +1,8 @@
-// OmniNinja — shell/files facade for the secure task sandbox.
-// All filesystem operations are scoped to the task workspace and production
-// shell execution is delegated to sandbox.ts, which refuses unsafe host-shell
-// fallbacks.
+// OmniNinja — shell/files facade for sandbox providers.
+//
+// local: existing namespace+proot sandbox (production only at level 2)
+// ailab: authenticated remote AI Lab/LXD container per task
+// disabled: fail closed
 
 import { unlinkSync } from 'fs';
 import {
@@ -14,6 +15,17 @@ import {
   resolveWorkspacePath,
   type SandboxLevel,
 } from './sandbox';
+import {
+  ailabConfigured,
+  executeInAilab,
+  ailabFileWrite,
+  ailabFileRead,
+  ailabListFiles,
+  ailabFileDelete,
+  cleanupAilabContainer,
+} from './ailab-sandbox';
+
+export type SandboxProvider = 'local' | 'ailab' | 'disabled';
 
 export interface ShellResult {
   cmd: string;
@@ -21,6 +33,15 @@ export interface ShellResult {
   stderr: string;
   exitCode: number;
   sandboxLevel?: SandboxLevel;
+  sandboxProvider?: SandboxProvider;
+  sandboxContainer?: string;
+}
+
+export function getSandboxProvider(): SandboxProvider {
+  const configured = (process.env.OMNININJA_SANDBOX_PROVIDER || 'local').trim().toLowerCase();
+  if (configured === 'ailab') return 'ailab';
+  if (configured === 'disabled') return 'disabled';
+  return 'local';
 }
 
 export async function shellExec(
@@ -28,6 +49,30 @@ export async function shellExec(
   cmd: string,
   timeoutMs = 60000,
 ): Promise<ShellResult> {
+  const provider = getSandboxProvider();
+
+  if (provider === 'disabled') {
+    return {
+      cmd,
+      stdout: '',
+      stderr: 'Shell desativado por OMNININJA_SANDBOX_PROVIDER=disabled.',
+      exitCode: 126,
+      sandboxProvider: 'disabled',
+    };
+  }
+
+  if (provider === 'ailab') {
+    const result = await executeInAilab(taskId, cmd, timeoutMs);
+    return {
+      cmd: result.cmd,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      sandboxProvider: 'ailab',
+      sandboxContainer: result.container,
+    };
+  }
+
   const result = await executeInSandbox(taskId, cmd, timeoutMs);
   return {
     cmd: result.cmd,
@@ -35,22 +80,33 @@ export async function shellExec(
     stderr: result.stderr,
     exitCode: result.exitCode,
     sandboxLevel: result.sandboxLevel,
+    sandboxProvider: 'local',
   };
 }
 
-export function fileWrite(
+export async function fileWrite(
   taskId: string,
   path: string,
   content: string,
-): { path: string; bytes: number } {
+): Promise<{ path: string; bytes: number }> {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') return ailabFileWrite(taskId, path, content);
+  if (provider === 'disabled') throw new Error('Filesystem sandbox desativado');
   return sandboxFileWrite(taskId, path, content);
 }
 
-export function fileRead(taskId: string, path: string): string {
+export async function fileRead(taskId: string, path: string): Promise<string> {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') return ailabFileRead(taskId, path);
+  if (provider === 'disabled') return 'Error: filesystem sandbox desativado';
   return sandboxFileRead(taskId, path);
 }
 
-export function fileDelete(taskId: string, path: string): boolean {
+export async function fileDelete(taskId: string, path: string): Promise<boolean> {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') return ailabFileDelete(taskId, path);
+  if (provider === 'disabled') return false;
+
   let safePath: string;
   try {
     safePath = resolveWorkspacePath(taskId, path);
@@ -66,11 +122,19 @@ export function fileDelete(taskId: string, path: string): boolean {
   }
 }
 
-export function cleanupWorkspace(taskId: string) {
-  cleanupSandbox(taskId);
+export async function cleanupWorkspace(taskId: string): Promise<void> {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') {
+    await cleanupAilabContainer(taskId);
+    return;
+  }
+  if (provider === 'local') cleanupSandbox(taskId);
 }
 
 export async function listFiles(taskId: string): Promise<string[]> {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') return ailabListFiles(taskId);
+  if (provider === 'disabled') return [];
   return sandboxListFiles(taskId);
 }
 
@@ -96,4 +160,11 @@ export async function exposePort(
 
 export function getSandboxLevel(): SandboxLevel {
   return detectSandboxLevel();
+}
+
+export function sandboxProviderConfigured(): boolean {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') return ailabConfigured();
+  if (provider === 'disabled') return false;
+  return true;
 }

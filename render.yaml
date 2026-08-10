@@ -13,17 +13,23 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: BROWSERLESS_API_KEY
+        sync: false
       - key: NEXTAUTH_SECRET
         generateValue: true
       - key: OMNINJA_MODEL
         value: gpt-5.1
       - key: OPENAI_BASE_URL
         value: https://api.openai.com/v1
-      - key: OMNININJA_WORKSPACE_ROOT
-        value: /tmp/omnininja/workspaces
-      - key: OMNININJA_SANDBOX_BASE
-        value: /tmp/omnininja/sandboxes
-      - key: OMNININJA_SANDBOX_IMAGE
-        value: /tmp/omnininja/sandbox-base
+      - key: OMNININJA_SANDBOX_PROVIDER
+        value: ailab
+      - key: AILAB_BASE_URL
+        sync: false
+      - key: AILAB_API_TOKEN
+        sync: false
+      - key: AILAB_PROVISION_TIMEOUT_MS
+        value: '300000'
+      - key: OMNININJA_AILAB_WORKSPACE
+        value: .omnininja-workspace
       - key: OMNININJA_SANDBOX_ALLOW_NETWORK
         value: 'false'
