@@ -21,11 +21,14 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Real OmniNinja client runner.
- * - chat -> /api/chat (OpenAI streaming)
- * - agent / agent_max -> /api/agent/run (OpenAI tool loop + real tools)
+ * Chatbox-first OmniNinja runner.
  *
- * No canned/simulated fallback exists. Backend failures are shown as failures.
+ * The UI exposes one conversation surface. Internally, requests are routed to:
+ * - /api/chat for normal conversation
+ * - /api/agent/run for OpenAI tool calling + Browserless + sandbox/files
+ *
+ * Tool events stay in task state for compact activity indicators. They are not
+ * expanded into a separate Computer UI or noisy assistant messages.
  */
 export function useAgentRunner() {
   const abortRef = useRef<AbortController | null>(null);
@@ -51,18 +54,18 @@ export function useAgentRunner() {
     };
     store.pushMessage(userMsg);
 
+    const assistantMsg: ChatMessage = {
+      id: uid(),
+      role: 'assistant',
+      content: '',
+      model: String(model),
+      streaming: true,
+      createdAt: Date.now(),
+    };
+    store.pushMessage(assistantMsg);
+
     try {
       if (mode === 'chat') {
-        const assistantMsg: ChatMessage = {
-          id: uid(),
-          role: 'assistant',
-          content: '',
-          model: String(model),
-          streaming: true,
-          createdAt: Date.now(),
-        };
-        store.pushMessage(assistantMsg);
-
         try {
           const freshMessages = useOmni.getState().messages;
           await streamLLMChat(
@@ -83,7 +86,7 @@ export function useAgentRunner() {
 
           const message = errorMessage(error);
           useOmni.getState().updateMessage(assistantMsg.id, {
-            content: `Não consegui concluir esta resposta porque o serviço real falhou.\n\n**Erro:** ${message}`,
+            content: `Não consegui concluir esta resposta.\n\n**Erro:** ${message}`,
             streaming: false,
           });
           toast.error('Falha no Chat', { description: message });
@@ -103,20 +106,9 @@ export function useAgentRunner() {
         artifacts: [],
         startedAt: Date.now(),
       });
-      store.setComputerOpen(true);
+      store.setComputerOpen(false);
       store.setLive(true);
       store.setReplayIndex(null);
-
-      store.pushMessage({
-        id: uid(),
-        role: 'assistant',
-        content: mode === 'agent_max'
-          ? '**Agent MAX** iniciado. Vou executar a tarefa com as ferramentas reais disponíveis e mostrar o progresso no Computador.'
-          : '**Agent** iniciado. Vou executar a tarefa com as ferramentas reais necessárias e mostrar o progresso no Computador.',
-        model: String(model),
-        streaming: false,
-        createdAt: Date.now(),
-      });
 
       let finalSummary = '';
 
@@ -129,55 +121,42 @@ export function useAgentRunner() {
             const currentStore = useOmni.getState();
             currentStore.appendEvent(event);
 
-            if (event.type === 'AGENT_THINKING' && event.agent === 'OmniNinja' && event.text) {
-              currentStore.pushMessage({
-                id: uid(),
-                role: 'assistant',
-                content: event.text,
-                model: String(model),
-                streaming: false,
-                createdAt: Date.now(),
-              });
-            }
-
-            if (event.type === 'BROWSER_ACTION') {
-              currentStore.setComputerTab('browser');
-            } else if (event.type === 'TERMINAL_OUTPUT') {
-              currentStore.setComputerTab('terminal');
-            } else if (event.type === 'FILE_CHANGED' || event.type === 'PLAN_CREATED') {
-              currentStore.setComputerTab('code');
-            } else if (event.type === 'TASK_COMPLETED') {
+            if (event.type === 'TASK_COMPLETED') {
               finalSummary = event.summary;
             } else if (event.type === 'TASK_FAILED') {
               currentStore.updateTaskStatus('failed');
             }
           },
           (screenshot) => useOmni.getState().setScreenshot(screenshot),
-          (session) => {
-            useOmni.getState().setBrowserSession(session);
-            useOmni.getState().setComputerTab('browser');
-          },
+          (session) => useOmni.getState().setBrowserSession(session),
           abortController.signal,
         );
+
+        if (!finalSummary) {
+          throw new Error('A execução terminou sem um resumo confirmado.');
+        }
+
+        useOmni.getState().updateMessage(assistantMsg.id, {
+          content: finalSummary,
+          streaming: false,
+        });
       } catch (error) {
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted) {
+          useOmni.getState().updateMessage(assistantMsg.id, {
+            content: 'Execução interrompida.',
+            streaming: false,
+          });
+          return;
+        }
 
         const message = errorMessage(error);
         useOmni.getState().updateTaskStatus('failed');
-        finalSummary = `A tarefa falhou e **não foi marcada como concluída**.\n\n**Erro:** ${message}`;
-        toast.error('Falha no Agent', { description: message });
+        useOmni.getState().updateMessage(assistantMsg.id, {
+          content: `Não consegui concluir a tarefa.\n\n**Erro:** ${message}`,
+          streaming: false,
+        });
+        toast.error('Falha na execução', { description: message });
       }
-
-      if (abortController.signal.aborted) return;
-
-      useOmni.getState().pushMessage({
-        id: uid(),
-        role: 'assistant',
-        content: finalSummary || 'A execução terminou sem um resumo confirmado.',
-        model: String(model),
-        streaming: false,
-        createdAt: Date.now(),
-      });
     } finally {
       if (abortRef.current === abortController) abortRef.current = null;
     }
