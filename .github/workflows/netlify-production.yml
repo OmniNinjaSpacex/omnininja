@@ -22,7 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate the only required Netlify secret
+      - name: Validate Netlify token
         shell: bash
         run: |
           set -euo pipefail
@@ -48,17 +48,20 @@ jobs:
           echo "Looking for a Netlify project beginning with: $PREFIX"
 
           SEARCH_JSON="$(npx netlify-cli@latest sites:search "$PREFIX" --json --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || printf '[]')"
-          SITE_ID="$(printf '%s' "$SEARCH_JSON" | node -e '
-            let raw=""; process.stdin.on("data",d=>raw+=d).on("end",()=>{
+          SITE_ID="$(printf '%s' "$SEARCH_JSON" | SITE_PREFIX="$PREFIX" node -e '
+            let raw = "";
+            process.stdin.on("data", d => raw += d).on("end", () => {
               try {
-                const parsed=JSON.parse(raw||"[]");
-                const items=Array.isArray(parsed)?parsed:(parsed.sites||parsed.results||[]);
-                const prefix=process.env.SITE_PREFIX;
-                const found=items.find(x => String(x.name||x.site_name||"").startsWith(prefix));
-                process.stdout.write(found ? String(found.id||found.site_id||"") : "");
-              } catch { process.stdout.write(""); }
+                const parsed = JSON.parse(raw || "[]");
+                const items = Array.isArray(parsed) ? parsed : (parsed.sites || parsed.results || []);
+                const prefix = process.env.SITE_PREFIX || "";
+                const found = items.find(x => String(x.name || x.site_name || "").startsWith(prefix));
+                process.stdout.write(found ? String(found.id || found.site_id || "") : "");
+              } catch {
+                process.stdout.write("");
+              }
             });
-          ' SITE_PREFIX="$PREFIX")"
+          ')"
 
           if [ -z "$SITE_ID" ]; then
             SUFFIX="$(printf '%s' "$GITHUB_SHA" | cut -c1-8)"
@@ -66,19 +69,21 @@ jobs:
             echo "No existing project found. Creating: $SITE_NAME"
             CREATE_JSON="$(npx netlify-cli@latest sites:create --name "$SITE_NAME" --json --auth "$NETLIFY_AUTH_TOKEN")"
             SITE_ID="$(printf '%s' "$CREATE_JSON" | node -e '
-              let raw=""; process.stdin.on("data",d=>raw+=d).on("end",()=>{
-                const x=JSON.parse(raw);
-                process.stdout.write(String(x.id||x.site_id||x.siteId||""));
+              let raw = "";
+              process.stdin.on("data", d => raw += d).on("end", () => {
+                const x = JSON.parse(raw);
+                process.stdout.write(String(x.id || x.site_id || x.siteId || ""));
               });
             ')"
-          else
-            echo "Reusing existing Netlify project: $SITE_ID"
-            npx netlify-cli@latest link --id "$SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           fi
 
           test -n "$SITE_ID" || (echo "Could not determine Netlify Site ID" >&2; exit 1)
+          echo "Reusing/creating Netlify project: $SITE_ID"
           echo "NETLIFY_SITE_ID=$SITE_ID" >> "$GITHUB_ENV"
           echo "site_id=$SITE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Link project
+        run: npx netlify-cli@latest link --id "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
 
       - name: Configure non-secret OmniNinja runtime settings
         shell: bash
@@ -87,7 +92,7 @@ jobs:
           npx netlify-cli@latest env:set OMNINJA_MODEL gpt-5.1 --context production --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --force
           npx netlify-cli@latest env:set OPENAI_BASE_URL https://api.openai.com/v1 --context production --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --force
 
-      - name: Copy optional app secrets to Netlify when already stored in GitHub
+      - name: Copy optional app secrets to Netlify
         shell: bash
         run: |
           set -euo pipefail
@@ -106,14 +111,10 @@ jobs:
           set_secret DATABASE_URL "${DATABASE_URL:-}"
           set_secret NEXTAUTH_SECRET "${NEXTAUTH_SECRET:-}"
 
-      - name: Link project
-        run: npx netlify-cli@latest link --id "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
-
       - name: Build with Netlify
-        run: npx netlify-cli@latest build --auth "$NETLIFY_AUTH_TOKEN"
+        run: npx netlify-cli@latest build --context production --auth "$NETLIFY_AUTH_TOKEN"
 
       - name: Deploy production
-        id: deploy
         shell: bash
         run: |
           set -euo pipefail
@@ -124,9 +125,12 @@ jobs:
         run: |
           node - <<'NODE'
           const fs = require('fs');
-          const raw = fs.readFileSync('/tmp/netlify-deploy.json','utf8');
+          const raw = fs.readFileSync('/tmp/netlify-deploy.json', 'utf8');
           const start = raw.indexOf('{');
-          if (start < 0) process.exit(0);
+          if (start < 0) {
+            console.log(raw);
+            process.exit(0);
+          }
           const data = JSON.parse(raw.slice(start));
           console.log('Public URL:', data.url || data.deploy_url || data.site_url || 'see Netlify deploy output');
           NODE
