@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Generate Prisma client
+        run: npx prisma generate
+
       - name: Create or reuse OmniNinja Netlify project
         id: site
         shell: bash
@@ -46,40 +49,37 @@ jobs:
 
           OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
           PREFIX="omninininja-${OWNER}"
-          echo "Looking for a Netlify project beginning with: $PREFIX"
+          API="https://api.netlify.com/api/v1"
+          AUTH_HEADER="Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"
 
-          SEARCH_JSON="$(npx netlify-cli@latest sites:search "$PREFIX" --json --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || printf '[]')"
-          SITE_ID="$(printf '%s' "$SEARCH_JSON" | SITE_PREFIX="$PREFIX" node -e '
+          echo "Looking for an existing Netlify project beginning with: $PREFIX"
+          SITES_JSON="$(curl --fail --show-error --silent -H "$AUTH_HEADER" "$API/sites")"
+          SITE_ID="$(printf '%s' "$SITES_JSON" | SITE_PREFIX="$PREFIX" node -e '
             let raw = "";
             process.stdin.on("data", d => raw += d).on("end", () => {
-              try {
-                const parsed = JSON.parse(raw || "[]");
-                const items = Array.isArray(parsed) ? parsed : (parsed.sites || parsed.results || []);
-                const prefix = process.env.SITE_PREFIX || "";
-                const found = items.find(x => String(x.name || x.site_name || "").startsWith(prefix));
-                process.stdout.write(found ? String(found.id || found.site_id || "") : "");
-              } catch {
-                process.stdout.write("");
-              }
+              const items = JSON.parse(raw || "[]");
+              const prefix = process.env.SITE_PREFIX || "";
+              const found = Array.isArray(items) ? items.find(x => String(x.name || "").startsWith(prefix)) : null;
+              process.stdout.write(found ? String(found.id || "") : "");
             });
           ')"
 
           if [ -z "$SITE_ID" ]; then
             SUFFIX="$(printf '%s' "$GITHUB_SHA" | cut -c1-8)"
             SITE_NAME="${PREFIX}-${SUFFIX}"
-            echo "No existing project found. Creating: $SITE_NAME"
-            CREATE_JSON="$(npx netlify-cli@latest sites:create --name "$SITE_NAME" --json --auth "$NETLIFY_AUTH_TOKEN")"
+            echo "No existing project found. Creating through Netlify REST API: $SITE_NAME"
+            CREATE_JSON="$(SITE_NAME="$SITE_NAME" node -e 'process.stdout.write(JSON.stringify({name: process.env.SITE_NAME}))' | curl --fail --show-error --silent -X POST -H "$AUTH_HEADER" -H 'Content-Type: application/json' --data-binary @- "$API/sites")"
             SITE_ID="$(printf '%s' "$CREATE_JSON" | node -e '
               let raw = "";
               process.stdin.on("data", d => raw += d).on("end", () => {
-                const x = JSON.parse(raw);
-                process.stdout.write(String(x.id || x.site_id || x.siteId || ""));
+                const x = JSON.parse(raw || "{}");
+                process.stdout.write(String(x.id || ""));
               });
             ')"
           fi
 
-          test -n "$SITE_ID" || (echo "Could not determine Netlify Site ID" >&2; exit 1)
-          echo "Reusing/creating Netlify project: $SITE_ID"
+          test -n "$SITE_ID" || (echo "Could not determine Netlify Project ID" >&2; exit 1)
+          echo "Netlify project ready: $SITE_ID"
           echo "NETLIFY_SITE_ID=$SITE_ID" >> "$GITHUB_ENV"
           echo "site_id=$SITE_ID" >> "$GITHUB_OUTPUT"
 
