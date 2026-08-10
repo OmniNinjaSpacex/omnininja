@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "omnininja-ai",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "routes": [
+    {
+      "pattern": "scriptsrimuru.online",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "NEXT_PUBLIC_APP_URL": "https://scriptsrimuru.online",
+    "OMNININJA_PUBLIC_BASE": "https://scriptsrimuru.online",
+    "OMNININJA_MODEL": "gpt-5.1",
+    "OPENAI_BASE_URL": "https://api.openai.com/v1",
+    "BROWSERLESS_REGION": "production-sfo",
+    "OMNININJA_SANDBOX_PROVIDER": "ailab",
+    "OMNININJA_AILAB_WORKSPACE": ".omnininja-workspace",
+    "OMNININJA_AILAB_FINALIZE": "stop",
+    "OMNININJA_SANDBOX_ALLOW_NETWORK": "false"
+  }
+}
