@@ -1,11 +1,10 @@
-// OmniNinja — Real Agent Run endpoint (SSE)
-// POST { goal, mode, model, browserWSEndpoint? }
-// Uses native OpenAI structured tool calling when OPENAI_API_KEY is configured.
+// OmniNinja — production Agent runner (SSE)
+// POST { goal, mode, model?, browserWSEndpoint? }
+// Real execution only: OpenAI Responses API + real tools. No simulated fallback.
 
 import { getCurrentUser } from '@/lib/auth';
 import { consumeCredits, CREDIT_COSTS } from '@/lib/credits';
 import { db } from '@/lib/db';
-import { runAgentLoop } from '@/lib/agent-loop';
 import { runOpenAIAgentLoop } from '@/lib/openai-agent-loop';
 import { createInteractiveBrowserSession, runWithBrowserSession } from '@/lib/browser-agent';
 import type { AgentEvent } from '@/lib/orchestrator';
@@ -23,33 +22,33 @@ function browserReconnectTimeout(): number {
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({} as any));
-  const goal = body.goal;
-  const mode = body.mode || 'agent';
-  const model = body.model || 'chatgpt';
-  const requestedBrowserWSEndpoint = typeof body.browserWSEndpoint === 'string'
-    ? body.browserWSEndpoint
+  const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
+  const mode = typeof body.mode === 'string' ? body.mode : 'agent';
+  const requestedBrowserWSEndpoint = typeof body.browserWSEndpoint === 'string' && body.browserWSEndpoint.trim()
+    ? body.browserWSEndpoint.trim()
     : undefined;
 
-  if (!goal || typeof goal !== 'string') {
-    return new Response(JSON.stringify({ error: 'goal required' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' },
-    });
+  if (!goal) {
+    return Response.json({ error: 'goal required' }, { status: 400 });
   }
 
+  if (mode !== 'agent' && mode !== 'agent_max') {
+    return Response.json({ error: 'mode must be agent or agent_max' }, { status: 400 });
+  }
+
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    return Response.json(
+      { error: 'OmniNinja Agent indisponível: OPENAI_API_KEY não configurada no servidor.' },
+      { status: 503 },
+    );
+  }
+
+  const effectiveModel = process.env.OPENAI_AGENT_MODEL || process.env.OPENAI_MODEL || 'gpt-5';
   const cost = CREDIT_COSTS.agent_step * 5 + CREDIT_COSTS.browser_action * 3;
   const consume = await consumeCredits(user.id, cost, 'task_run');
   if (!consume.ok && consume.remaining === 0) {
-    return new Response(JSON.stringify({ error: 'Créditos insuficientes' }), {
-      status: 402,
-      headers: { 'content-type': 'application/json' },
-    });
+    return Response.json({ error: 'Créditos insuficientes' }, { status: 402 });
   }
-
-  const useStructuredOpenAI = Boolean(process.env.OPENAI_API_KEY?.trim());
-  const effectiveModel = useStructuredOpenAI
-    ? (process.env.OPENAI_AGENT_MODEL || process.env.OPENAI_MODEL || 'gpt-5')
-    : model;
 
   const task = await db.task.create({
     data: {
@@ -70,7 +69,7 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (obj: any) => {
+      const send = (obj: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
 
@@ -80,8 +79,11 @@ export async function POST(req: Request) {
       let agentFailureMessage = '';
 
       const onEvent = (event: AgentEvent) => {
-        const { screenshotBase64, ...sendable } = event as any;
-        events.push({ type: event.type, payload: JSON.stringify(event) });
+        const { screenshotBase64, ...safeEvent } = event as any;
+
+        // Screenshots can be megabytes. Stream them to the live client, but never
+        // write base64 image blobs into the relational event log.
+        events.push({ type: event.type, payload: JSON.stringify(safeEvent) });
 
         if (event.type === 'TASK_COMPLETED') finalSummary = event.summary;
         if (event.type === 'TASK_FAILED') {
@@ -90,10 +92,10 @@ export async function POST(req: Request) {
         }
 
         if (screenshotBase64) {
-          send({ type: 'event', event: sendable, hasScreenshot: true });
+          send({ type: 'event', event: safeEvent, hasScreenshot: true });
           send({ type: 'screenshot', taskId, data: screenshotBase64 });
         } else {
-          send({ type: 'event', event: sendable });
+          send({ type: 'event', event: safeEvent });
         }
       };
 
@@ -102,8 +104,6 @@ export async function POST(req: Request) {
         let browserLiveURL: string | undefined;
         let browserExpiresInMs: number | undefined;
 
-        // Each agent task gets its own Browserless session when Browserless is configured.
-        // A client-provided reconnect endpoint takes precedence (human takeover/login flow).
         if (!browserWSEndpoint && process.env.BROWSERLESS_API_KEY?.trim()) {
           try {
             const session = await createInteractiveBrowserSession(
@@ -114,12 +114,11 @@ export async function POST(req: Request) {
             browserLiveURL = session.liveURL;
             browserExpiresInMs = session.expiresInMs;
           } catch (browserError: any) {
-            // Do not kill the task: browser-agent can still attempt its normal Browserless/local fallback.
             onEvent({
               type: 'AGENT_THINKING',
               taskId,
               agent: 'Browser',
-              text: `Sessao interativa indisponivel; usando fallback de navegador: ${browserError?.message || 'erro desconhecido'}`,
+              text: `Sessão Browserless interativa indisponível: ${browserError?.message || 'erro desconhecido'}. O agente tentará o navegador configurado no servidor.`,
               ts: Date.now(),
             });
           }
@@ -129,7 +128,7 @@ export async function POST(req: Request) {
           type: 'start',
           taskId,
           credits: consume.remaining,
-          engine: useStructuredOpenAI ? 'openai-responses-tools' : 'legacy-agent-loop',
+          engine: 'openai-responses-tools',
           model: effectiveModel,
           browserTakeover: Boolean(browserWSEndpoint),
         });
@@ -143,24 +142,21 @@ export async function POST(req: Request) {
           });
         }
 
-        const executeAgent = async () => {
-          if (useStructuredOpenAI) {
-            return runOpenAIAgentLoop({ goal, mode, taskId, onEvent });
-          }
-          return runAgentLoop({ goal, mode, model, taskId, onEvent });
-        };
-
-        await runWithBrowserSession(browserWSEndpoint, executeAgent);
+        await runWithBrowserSession(browserWSEndpoint, () =>
+          runOpenAIAgentLoop({ goal, mode, taskId, onEvent }),
+        );
 
         if (agentFailed) {
           throw new Error(agentFailureMessage || 'Agent task failed');
         }
 
-        send({ type: 'done', taskId, model: effectiveModel });
+        if (!finalSummary) {
+          throw new Error('O Agent encerrou sem confirmar a conclusão da tarefa.');
+        }
 
         if (events.length > 0) {
           await db.eventRow.createMany({
-            data: events.map((e) => ({ taskId, type: e.type, payload: e.payload })),
+            data: events.map((event) => ({ taskId, type: event.type, payload: event.payload })),
           });
         }
 
@@ -172,12 +168,15 @@ export async function POST(req: Request) {
             finishedAt: new Date(),
           },
         });
+
+        // `done` is emitted only after execution and persistence both succeeded.
+        send({ type: 'done', taskId, model: effectiveModel });
       } catch (err: any) {
-        send({ type: 'error', error: err?.message || 'Agent error' });
+        const message = err?.message || 'Agent error';
 
         if (events.length > 0) {
           await db.eventRow.createMany({
-            data: events.map((e) => ({ taskId, type: e.type, payload: e.payload })),
+            data: events.map((event) => ({ taskId, type: event.type, payload: event.payload })),
           }).catch(() => {});
         }
 
@@ -185,10 +184,12 @@ export async function POST(req: Request) {
           where: { id: taskId },
           data: {
             status: 'failed',
-            summary: String(err?.message || '').slice(0, 500),
+            summary: String(message).slice(0, 500),
             finishedAt: new Date(),
           },
         }).catch(() => {});
+
+        send({ type: 'error', taskId, error: message });
       } finally {
         controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
         controller.close();

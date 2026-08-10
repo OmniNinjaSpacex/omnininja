@@ -1,91 +1,122 @@
-// OmniNinja — Chat endpoint (SSE streaming via OpenRouter)
-// Substitui z-ai-web-dev-sdk por OpenRouter (suas 5 chaves: Claude/GPT/Kimi/Grok/Gemini).
-// POST { messages: [{role, content}], model?: 'claude'|'chatgpt'|'kimi'|'grok'|'gemini' }
-// -> text/event-stream de tokens (streaming REAL do OpenRouter).
+// OmniNinja — production Chat endpoint
+// Native OpenAI Responses API through the compatibility client in @/lib/openrouter.
+// POST { messages, model? } -> SSE text stream.
 
 import { getCurrentUser } from '@/lib/auth';
 import { consumeCredits, CREDIT_COSTS } from '@/lib/credits';
 import { db } from '@/lib/db';
-import { completionStream, type OpenRouterModel, type ChatMessage } from '@/lib/openrouter';
+import { completionStream, completion, type OpenRouterModel, type ChatMessage } from '@/lib/openrouter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-// Modo chat: respostas mais ricas e completas (conversa natural)
-const CHAT_MAX_TOKENS = 1024;
+const CHAT_MAX_TOKENS = 2048;
 
-const SYSTEM_PROMPT = `Você é o OmniNinja, um agente de IA autônomo inspirado no Manus AI e no Ninja AI. Você pode responder diretamente (modo Chat) ou abrir o "Computador" com sandbox, terminal e navegador reais para executar tarefas (modo Agent / Agent MAX).
+const SYSTEM_PROMPT = `Você é o OmniNinja, uma plataforma de IA generalista que combina conversa natural com um Agent capaz de usar ferramentas reais quando o usuário escolhe Agent ou Agent MAX.
 
-Características:
-- Responda SEMPRE em português do Brasil, de forma clara e útil.
-- Use Markdown (headings, listas, **negrito**, \`código inline\`, blocos de código com linguagem).
-- Se o usuário pedir algo que exija execução real (criar site, pesquisar, rodar código), sugira mudar para o modo Agent.
-- Seja conciso em perguntas simples, detalhado em tarefas complexas.
-- Você orquestra vários modelos (Claude, GPT, Gemini, Kimi, Grok) via OpenRouter, com fallback automático.`;
+No modo Chat atual:
+- Responda em português do Brasil, a menos que o usuário peça outro idioma.
+- Seja claro, útil e natural.
+- Use Markdown quando melhorar a resposta.
+- Não diga que executou navegador, terminal, arquivos, deploys ou qualquer ação externa no modo Chat.
+- Quando uma solicitação realmente exigir execução de ferramentas, explique brevemente que o usuário pode usar Agent/Agent MAX.
+- Nunca invente resultados de ferramentas, arquivos, sites publicados ou ações concluídas.`;
+
+function serviceUnavailable() {
+  return Response.json(
+    { error: 'OmniNinja Chat indisponível: OPENAI_API_KEY não configurada no servidor.' },
+    { status: 503 },
+  );
+}
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
+
+  if (!process.env.OPENAI_API_KEY?.trim()) return serviceUnavailable();
+
   const body = await req.json().catch(() => ({} as any));
   const incoming = Array.isArray(body.messages) ? body.messages : [];
   const model = (body.model as OpenRouterModel) || undefined;
-  const lastUser = [...incoming].reverse().find((m: any) => m.role === 'user');
+  const lastUser = [...incoming].reverse().find((message: any) => message.role === 'user');
 
-  if (!lastUser) {
-    return new Response(JSON.stringify({ error: 'messages required' }), {
-      status: 400, headers: { 'content-type': 'application/json' },
-    });
+  if (!lastUser || typeof lastUser.content !== 'string' || !lastUser.content.trim()) {
+    return Response.json({ error: 'messages required' }, { status: 400 });
   }
 
   const consume = await consumeCredits(user.id, CREDIT_COSTS.chat_message, 'chat_message');
   if (!consume.ok && consume.remaining === 0) {
-    return new Response(JSON.stringify({ error: 'Créditos insuficientes' }), {
-      status: 402, headers: { 'content-type': 'application/json' },
-    });
+    return Response.json({ error: 'Créditos insuficientes' }, { status: 402 });
   }
 
-  const userMsg = await db.message.create({
+  await db.message.create({
     data: { userId: user.id, role: 'user', content: lastUser.content },
   });
 
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...incoming
-      .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-      .slice(-12)
-      .map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      .filter((message: any) =>
+        (message.role === 'user' || message.role === 'assistant') &&
+        typeof message.content === 'string' &&
+        message.content.trim(),
+      )
+      .slice(-20)
+      .map((message: any) => ({
+        role: message.role as 'user' | 'assistant',
+        content: message.content,
+      })),
   ];
 
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (obj: any) => {
+      const send = (obj: unknown) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
+
       let fullText = '';
-      let usedModel = '';
       try {
-        send({ type: 'start', credits: consume.remaining });
+        send({
+          type: 'start',
+          credits: consume.remaining,
+          engine: 'openai-responses',
+        });
+
         const result = await completionStream(
-          { messages, model, temperature: 0.7, maxTokens: CHAT_MAX_TOKENS, fallback: true },
+          {
+            messages,
+            model,
+            maxTokens: CHAT_MAX_TOKENS,
+            fallback: false,
+          },
           (delta) => {
             fullText += delta;
             send({ type: 'delta', text: delta });
-          }
+          },
         );
-        usedModel = result.model;
 
-        if (!fullText) {
-          send({ type: 'error', error: 'Resposta vazia do modelo' });
+        if (!fullText.trim()) {
+          throw new Error('OpenAI retornou uma resposta vazia');
         }
 
         await db.message.create({
-          data: { userId: user.id, role: 'assistant', content: fullText, model: usedModel },
+          data: {
+            userId: user.id,
+            role: 'assistant',
+            content: fullText,
+            model: result.model,
+          },
         });
-        send({ type: 'done', credits: consume.remaining - 1, model: usedModel });
-      } catch (err: any) {
-        send({ type: 'error', error: err?.message ?? 'LLM error' });
+
+        send({
+          type: 'done',
+          credits: Math.max(0, consume.remaining - CREDIT_COSTS.chat_message),
+          model: result.model,
+        });
+      } catch (error: any) {
+        send({ type: 'error', error: error?.message || 'OpenAI error' });
       } finally {
         controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
         controller.close();
@@ -102,22 +133,24 @@ export async function POST(req: Request) {
   });
 }
 
-// GET /api/chat — resposta rápida não-streaming (usado pelo classify e respostas simples).
+// Lightweight non-streaming helper used by internal classification/simple calls.
 export async function GET(req: Request) {
+  if (!process.env.OPENAI_API_KEY?.trim()) return serviceUnavailable();
+
   const url = new URL(req.url);
   const q = url.searchParams.get('q');
-  if (!q) return Response.json({ error: 'q required' }, { status: 400 });
-  const { completion } = await import('@/lib/openrouter');
+  if (!q?.trim()) return Response.json({ error: 'q required' }, { status: 400 });
+
   try {
-    const r = await completion({
+    const result = await completion({
       messages: [
-        { role: 'system', content: 'Responda em português, em até 2 frases.' },
+        { role: 'system', content: 'Responda em português do Brasil, em até 2 frases.' },
         { role: 'user', content: q },
       ],
-      fallback: true,
+      fallback: false,
     });
-    return Response.json({ text: r.content, model: r.model });
-  } catch (err: any) {
-    return Response.json({ error: err.message }, { status: 500 });
+    return Response.json({ text: result.content, model: result.model });
+  } catch (error: any) {
+    return Response.json({ error: error?.message || 'OpenAI error' }, { status: 502 });
   }
 }
