@@ -3,6 +3,8 @@ name: Deploy OmniNinja to Netlify
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -44,7 +46,7 @@ jobs:
           set -euo pipefail
 
           OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
-          PREFIX="omnininja-${OWNER}"
+          PREFIX="omninininja-${OWNER}"
           echo "Looking for a Netlify project beginning with: $PREFIX"
 
           SEARCH_JSON="$(npx netlify-cli@latest sites:search "$PREFIX" --json --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || printf '[]')"
