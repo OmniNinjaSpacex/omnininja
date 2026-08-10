@@ -12,12 +12,20 @@ export type ProviderId =
   | 'deepseek' | 'glm' | 'nemotron' | 'minimax' | 'qwen';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
+export interface MessageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   model?: string;
   streaming?: boolean;
+  attachments?: MessageAttachment[];
   createdAt: number;
 }
 
@@ -56,8 +64,6 @@ interface OmniState {
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearMessages: () => void;
 
-  // The product exposes one branded model: OMNINJA. `model` is retained only
-  // as an internal compatibility alias for the OpenAI-backed runtime.
   model: ProviderId;
   setModel: (m: ProviderId) => void;
   mode: AgentMode;
@@ -114,7 +120,6 @@ export const useOmni = create<OmniState>((set) => ({
 
   model: 'chatgpt',
   setModel: (m) => set({ model: m }),
-  // `mode` is now internal only. The user never chooses Agent/Agent MAX.
   mode: 'agent',
   setMode: (m) => set({ mode: m }),
 
