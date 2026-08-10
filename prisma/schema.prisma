@@ -17,10 +17,10 @@ model User {
   name          String?
   passwordHash  String?
   image         String?
-  tier          String   @default("free") // free | pro | business | team | enterprise
+  tier          String   @default("free")
   credits       Int      @default(300)
   bonusCredits  Int      @default(1000)
-  role          String   @default("user") // user | admin
+  role          String   @default("user")
   defaultModel  String   @default("glm")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -64,9 +64,9 @@ model Task {
   project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   title       String
   goal        String
-  mode        String   @default("agent") // chat | agent | agent_max
+  mode        String   @default("agent")
   model       String   @default("glm")
-  status      String   @default("queued") // queued | planning | running | awaiting_input | completed | failed | cancelled
+  status      String   @default("queued")
   summary     String?
   creditsUsed Int      @default(0)
   stepsTotal  Int      @default(0)
@@ -81,25 +81,28 @@ model Task {
 }
 
 model Message {
-  id          String   @id @default(cuid())
-  taskId      String?
-  task        Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  role        String   // user | assistant | system | tool
-  content     String
-  model       String?
-  tokensIn    Int      @default(0)
-  tokensOut   Int      @default(0)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(cuid())
+  taskId        String?
+  task          Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  role          String
+  content       String
+  model         String?
+  tokensIn      Int      @default(0)
+  tokensOut     Int      @default(0)
+  embeddingJson String?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model EventRow {
   id          String   @id @default(cuid())
   taskId      String
   task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  type        String   // TASK_STARTED | PLAN_CREATED | STEP_STARTED | AGENT_THINKING | BROWSER_ACTION | TERMINAL_OUTPUT | FILE_CHANGED | STEP_COMPLETED | MODEL_FALLBACK | TASK_COMPLETED | TASK_FAILED
-  payload     String   // JSON string
+  type        String
+  payload     String
   ts          DateTime @default(now())
 
   @@index([taskId, ts])
@@ -110,22 +113,21 @@ model Artifact {
   taskId      String
   task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   name        String
-  kind        String   // file | site | image | report | archive
+  kind        String
   path        String
   sizeBytes   Int      @default(0)
   createdAt   DateTime @default(now())
 }
 
-// Scheduled / recurring tasks
 model ScheduledTask {
   id          String   @id @default(cuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   prompt      String
-  mode        String   @default("agent") // chat | agent | agent_max
+  mode        String   @default("agent")
   model       String   @default("glm")
-  schedule    String   // cron-like: 'daily 09:00' | 'weekly mon 10:00' | 'every 2h' | 'once 2026-08-01 14:00'
+  schedule    String
   enabled     Boolean  @default(true)
   lastRunAt   DateTime?
   nextRunAt   DateTime?
@@ -138,20 +140,19 @@ model CreditTransaction {
   id          String   @id @default(cuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  delta       Int      // negative = consumed, positive = granted/purchased
-  reason      String   // task_run | daily_bonus | purchase | refund | monthly_grant
+  delta       Int
+  reason      String
   taskId      String?
   createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
 }
 
-// Tracks which integration/provider keys are configured (bool only — never the key).
 model Integration {
   id          String   @id @default(cuid())
-  key         String   @unique // e.g. OPENROUTER_CLAUDE_API_KEY, BROWSERLESS_API_KEY
+  key         String   @unique
   label       String
-  category    String   // llm | browser | search | infra | auth | billing
+  category    String
   configured  Boolean  @default(false)
   updatedAt   DateTime @updatedAt
 }
