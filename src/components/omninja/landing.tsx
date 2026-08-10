@@ -3,16 +3,15 @@
 import Link from 'next/link';
 import {
   ArrowRight,
-  Bot,
+  Brain,
   Code2,
+  Gauge,
   Globe,
+  LockKeyhole,
   MessageSquare,
-  Monitor,
   ShieldCheck,
   Sparkles,
   Terminal,
-  Check,
-  LockKeyhole,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,57 +21,48 @@ import { useOmni } from '@/lib/store';
 const CAPABILITIES = [
   {
     icon: MessageSquare,
-    title: 'Chat real',
-    description: 'Conversa com o backend OpenAI configurado no servidor, com streaming e histórico de mensagens.',
+    title: 'Uma conversa contínua',
+    description: 'A interface é um único chat. Não existe troca entre Chat, Agent ou Agent MAX para o usuário.',
   },
   {
-    icon: Bot,
-    title: 'Agent + Agent MAX',
-    description: 'Loop de ferramentas estruturado: o modelo decide quando navegar, executar comandos e trabalhar com arquivos.',
+    icon: Sparkles,
+    title: 'Modelo OMNINJA',
+    description: 'O produto mostra um único modelo chamado OMNINJA. Provedores e serviços usados por trás ficam internos.',
+  },
+  {
+    icon: Gauge,
+    title: 'Esforço real',
+    description: 'Baixo, Médio e Alto alteram o esforço de raciocínio enviado ao modelo e o orçamento interno de execução.',
+  },
+  {
+    icon: Brain,
+    title: 'Pensamento opcional',
+    description: 'Pensamento pode ser ligado ou desligado. Desligado usa modo sem raciocínio; ligado respeita o esforço escolhido.',
   },
   {
     icon: Globe,
-    title: 'Navegador na nuvem',
-    description: 'Browserless real com screenshots, LiveURL interativo e sessões separadas por tarefa e usuário.',
-  },
-  {
-    icon: Terminal,
-    title: 'Sandbox seguro',
-    description: 'Comandos só executam em produção quando o host oferece isolamento seguro. Sem fallback silencioso para o servidor.',
+    title: 'Ferramentas internas',
+    description: 'Web e navegador na nuvem podem ser usados automaticamente quando a pergunta realmente precisa deles.',
   },
   {
     icon: Code2,
-    title: 'Arquivos e código',
-    description: 'O Computer mostra apenas alterações e saídas realmente confirmadas pelo backend — sem arquivos ou previews inventados.',
+    title: 'Código e arquivos',
+    description: 'Terminal, sandbox e arquivos ficam disponíveis internamente sem transformar a experiência em uma tela de Agent.',
   },
   {
     icon: ShieldCheck,
-    title: 'Sessões isoladas',
-    description: 'Visitantes recebem contas guest separadas; navegador, arquivos e tickets de takeover não são compartilhados entre usuários.',
+    title: 'Execução verificável',
+    description: 'O OmniNinja não deve afirmar que executou uma ação se uma ferramenta real não confirmou o resultado.',
   },
-];
-
-const NOW = [
-  'Chat com OpenAI',
-  'Agent e Agent MAX com function calling',
-  'Browserless + takeover humano',
-  'Terminal e filesystem com fail-closed',
-  'Computer com eventos reais',
-  'Contas guest isoladas + login por e-mail',
-];
-
-const NEXT = [
-  'Projects e memória persistente',
-  'Banco gerenciado para escala multiusuário',
-  'Deep Research e Skills',
-  'Conectores e MCP',
-  'Website Builder + deploy verificável',
-  'Billing, equipes e API pública',
+  {
+    icon: Terminal,
+    title: 'Sandbox protegido',
+    description: 'Comandos só rodam quando o backend possui isolamento seguro; em produção, falhas são bloqueadas em vez de simuladas.',
+  },
 ];
 
 export function LandingPage() {
   const setView = useOmni((state) => state.setView);
-
   const openWorkspace = () => setView('workspace');
 
   return (
@@ -98,24 +88,23 @@ export function LandingPage() {
           <div className="relative mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8 lg:py-32">
             <div className="mx-auto max-w-4xl text-center">
               <Badge variant="outline" className="mb-6 gap-1.5 border-brand/40 bg-brand/5 text-brand">
-                <Sparkles className="h-3 w-3" /> Public Beta · produto real, sem execução simulada
+                <Sparkles className="h-3 w-3" /> OMNINJA · Public Beta
               </Badge>
 
               <h1 className="font-serif text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">
-                Converse com uma IA.
+                Uma IA para conversar,
                 <br />
-                <span className="text-gradient-brand">Quando precisar, ela trabalha.</span>
+                <span className="text-gradient-brand">pensar e fazer.</span>
               </h1>
 
               <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-                OmniNinja reúne Chat e Agent em uma única plataforma. Perguntas simples ficam no chat;
-                tarefas reais podem usar navegador na nuvem, ferramentas, terminal e arquivos — e o Computer
-                mostra somente o que realmente aconteceu.
+                Uma experiência simples como Claude ou ChatGPT: você conversa com um único modelo chamado OMNINJA.
+                Quando necessário, ele usa pesquisa, navegador, código, terminal e arquivos internamente.
               </p>
 
               <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
                 <Button size="lg" onClick={openWorkspace} className="gap-2 glow-brand">
-                  Usar como visitante <ArrowRight className="h-4 w-4" />
+                  Conversar com OMNINJA <ArrowRight className="h-4 w-4" />
                 </Button>
                 <Button size="lg" variant="outline" asChild>
                   <Link href="/login" className="gap-2">
@@ -123,41 +112,25 @@ export function LandingPage() {
                   </Link>
                 </Button>
               </div>
-
-              <p className="mt-4 text-xs text-muted-foreground">
-                O acesso guest recebe uma sessão própria. Recursos dependem das integrações realmente configuradas no servidor.
-              </p>
             </div>
 
-            <div className="mx-auto mt-14 max-w-5xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-              <div className="flex items-center gap-2 border-b border-border bg-background/60 px-4 py-3">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/70" />
-                <span className="h-2.5 w-2.5 rounded-full bg-green-400/70" />
-                <span className="ml-3 text-xs text-muted-foreground">OmniNinja Computer</span>
+            <div className="mx-auto mt-14 max-w-3xl rounded-[28px] border border-border bg-card p-4 shadow-2xl sm:p-6">
+              <div className="rounded-2xl bg-accent/70 px-4 py-3 text-left text-sm">
+                Compare as opções mais importantes, confira informações atuais e me explique qual faz mais sentido.
               </div>
-              <div className="grid min-h-64 md:grid-cols-[1fr_1.15fr]">
-                <div className="border-b border-border p-6 md:border-b-0 md:border-r">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">Conversa</div>
-                  <div className="mt-4 rounded-xl bg-accent p-3 text-sm">
-                    Pesquise este assunto, compare as fontes e gere um arquivo com o resultado.
-                  </div>
-                  <div className="mt-3 rounded-xl border border-border bg-background p-3 text-sm text-muted-foreground">
-                    Agent iniciado. As ações confirmadas aparecerão no Computer.
-                  </div>
+              <div className="mt-5 flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                  <Sparkles className="h-4 w-4" />
                 </div>
-                <div className="bg-[#09090b] p-6 text-sm">
-                  <div className="flex items-center gap-2 text-zinc-300">
-                    <Monitor className="h-4 w-4 text-brand" /> Computer
-                  </div>
-                  <div className="mt-5 space-y-3 text-xs text-zinc-400">
-                    <div className="flex items-center gap-2"><Globe className="h-3.5 w-3.5" /> Browserless LiveURL quando realmente criado</div>
-                    <div className="flex items-center gap-2"><Terminal className="h-3.5 w-3.5" /> saída real do sandbox</div>
-                    <div className="flex items-center gap-2"><Code2 className="h-3.5 w-3.5" /> arquivos confirmados pelo Agent</div>
-                  </div>
-                  <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-500">
-                    Sem Browserless? Mostra indisponível. Sem sandbox seguro? O comando é bloqueado.
-                    O frontend não substitui falhas por uma demonstração falsa.
+                <div className="text-left">
+                  <div className="text-sm font-medium">OMNINJA</div>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    Posso responder diretamente ou usar recursos internos para verificar informações antes de responder.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                    <span className="rounded-full border border-border px-2 py-1">Esforço: Médio</span>
+                    <span className="rounded-full border border-brand/30 bg-brand/5 px-2 py-1 text-brand">Pensamento ativado</span>
+                    <span className="rounded-full border border-border px-2 py-1">Tools automáticas</span>
                   </div>
                 </div>
               </div>
@@ -165,19 +138,19 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="border-b border-border/60 py-20">
+        <section className="py-20">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="max-w-2xl">
-              <Badge variant="outline">Base do produto</Badge>
+            <div className="mx-auto max-w-2xl text-center">
+              <Badge variant="outline">Por trás do chat</Badge>
               <h2 className="mt-4 font-serif text-3xl font-semibold sm:text-4xl">
-                Uma interface simples, ferramentas reais por trás.
+                Simples para o usuário. Forte internamente.
               </h2>
               <p className="mt-3 text-muted-foreground">
-                A prioridade da beta é confiabilidade: não afirmar que uma ação ocorreu sem confirmação da ferramenta.
+                O usuário escolhe apenas como quer que o OMNINJA pense. O resto é responsabilidade da plataforma.
               </p>
             </div>
 
-            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {CAPABILITIES.map((feature) => (
                 <div key={feature.title} className="rounded-2xl border border-border bg-card p-5">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
@@ -188,48 +161,20 @@ export function LandingPage() {
                 </div>
               ))}
             </div>
-          </div>
-        </section>
 
-        <section className="border-b border-border/60 py-20">
-          <div className="mx-auto grid max-w-7xl gap-6 px-4 sm:px-6 md:grid-cols-2 lg:px-8">
-            <div className="rounded-2xl border border-success/30 bg-success/5 p-6">
-              <div className="text-xs font-medium uppercase tracking-wider text-success">Disponível na base atual</div>
-              <ul className="mt-5 space-y-3">
-                {NOW.map((item) => (
-                  <li key={item} className="flex items-start gap-2 text-sm">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" /> {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card p-6">
-              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Próximas camadas</div>
-              <ul className="mt-5 space-y-3">
-                {NEXT.map((item) => (
-                  <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50" /> {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-20">
-          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
-            <h2 className="font-serif text-3xl font-semibold">Entre na beta do OmniNinja.</h2>
-            <p className="mt-3 text-muted-foreground">
-              Você pode começar com uma sessão guest isolada ou criar sua conta para usar o produto com identidade própria.
-            </p>
-            <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-              <Button size="lg" onClick={openWorkspace} className="gap-2">
-                Abrir agora <ArrowRight className="h-4 w-4" />
-              </Button>
-              <Button size="lg" variant="outline" asChild>
-                <Link href="/login">Criar conta</Link>
-              </Button>
+            <div className="mx-auto mt-12 max-w-3xl rounded-2xl border border-border bg-card p-6 text-center">
+              <h3 className="font-serif text-2xl font-semibold">Entre na beta.</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Comece como visitante isolado ou crie sua conta. A interface principal continua sendo apenas a conversa.
+              </p>
+              <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+                <Button onClick={openWorkspace} className="gap-2">
+                  Abrir OMNINJA <ArrowRight className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link href="/login">Criar conta</Link>
+                </Button>
+              </div>
             </div>
           </div>
         </section>
@@ -238,7 +183,7 @@ export function LandingPage() {
       <footer className="border-t border-border py-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 text-xs text-muted-foreground sm:px-6 md:flex-row md:items-center lg:px-8">
           <Wordmark />
-          <span className="md:ml-auto">OmniNinja Public Beta · recursos podem evoluir durante a beta.</span>
+          <span className="md:ml-auto">OmniNinja Public Beta · um modelo, uma conversa, ferramentas internas.</span>
         </div>
       </footer>
     </div>

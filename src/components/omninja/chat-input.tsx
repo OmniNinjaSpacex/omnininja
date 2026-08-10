@@ -1,50 +1,54 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import {
-  ArrowUp, Square, Plus, Mic, Smile, Paperclip, Sparkles, Search,
-  FileText, Clock, Wand2, HardDrive, Figma, ChevronDown, AtSign, Coins, CreditCard,
-} from 'lucide-react';
-import { useOmni, type AgentMode } from '@/lib/store';
-import { ModelSelector } from './model-selector';
+import { ArrowUp, Brain, Check, ChevronDown, Gauge, Sparkles, Square } from 'lucide-react';
+import { useOmni, type ReasoningEffort } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  Popover, PopoverContent, PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAgentRunner } from '@/lib/use-agent-runner';
 import { cn } from '@/lib/utils';
 
+const EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  low: 'Baixo',
+  medium: 'Médio',
+  high: 'Alto',
+};
+
+const EFFORT_DESCRIPTIONS: Record<ReasoningEffort, string> = {
+  low: 'Mais rápido e econômico',
+  medium: 'Equilíbrio entre velocidade e profundidade',
+  high: 'Mais raciocínio para problemas difíceis',
+};
+
 export function ChatInput() {
   const [text, setText] = useState('');
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const mode = useOmni((s) => s.mode);
-  const setMode = useOmni((s) => s.setMode);
-  const model = useOmni((s) => s.model);
-  const currentTask = useOmni((s) => s.currentTask);
-  const user = useOmni((s) => s.user);
-  const { run, stop } = useAgentRunner();
   const [running, setRunning] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const currentTask = useOmni((state) => state.currentTask);
+  const reasoningEffort = useOmni((state) => state.reasoningEffort);
+  const setReasoningEffort = useOmni((state) => state.setReasoningEffort);
+  const thinkingEnabled = useOmni((state) => state.thinkingEnabled);
+  const setThinkingEnabled = useOmni((state) => state.setThinkingEnabled);
+  const { run, stop } = useAgentRunner();
 
-  const isRunning = !!currentTask && ['running', 'planning', 'queued', 'awaiting_input'].includes(currentTask.status);
-  const totalCredits = user ? user.credits + user.bonusCredits : 0;
+  const taskRunning = Boolean(
+    currentTask && ['running', 'planning', 'queued', 'awaiting_input'].includes(currentTask.status),
+  );
 
   useEffect(() => {
-    setRunning(isRunning);
-  }, [isRunning]);
+    if (taskRunning) setRunning(true);
+  }, [taskRunning]);
 
-  // auto-resize textarea
   useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = '0px';
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    const textarea = taRef.current;
+    if (!textarea) return;
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
   }, [text]);
 
-  // listen for prompt chips
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<string>).detail;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
       setText(detail);
       taRef.current?.focus();
     };
@@ -53,155 +57,154 @@ export function ChatInput() {
   }, []);
 
   const submit = async () => {
-    const t = text.trim();
-    if (!t || running) return;
+    const prompt = text.trim();
+    if (!prompt || running) return;
+
     setText('');
     setRunning(true);
     try {
-      await run(t, model, mode);
+      await run(prompt, reasoningEffort, thinkingEnabled);
     } finally {
       setRunning(false);
+      requestAnimationFrame(() => taRef.current?.focus());
     }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submit();
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void submit();
     }
+  };
+
+  const stopRun = () => {
+    stop();
+    setRunning(false);
   };
 
   return (
-    <div className="border-t border-border bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto max-w-3xl px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
-        {/* Mobile: credits remaining + buy credits bar */}
-        <div className="mb-2 flex items-center gap-2 md:hidden">
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Coins className="h-3 w-3 text-warning" />
-            <span className="font-medium tabular-nums">{totalCredits.toLocaleString()}</span> credits remaining
-          </span>
-          <button className="ml-auto flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-1 text-[10px] font-medium text-brand transition-colors hover:bg-brand/20">
-            <CreditCard className="h-3 w-3" /> Buy credits
-          </button>
-        </div>
-
-        {/* mode + quick toggles row */}
-        <div className="mb-2 flex items-center gap-1.5">
-          <ModePill mode="chat" current={mode} setMode={setMode} />
-          <ModePill mode="agent" current={mode} setMode={setMode} />
-          <ModePill mode="agent_max" current={mode} setMode={setMode} />
-          <span className="ml-auto flex items-center gap-2">
-            <Badge variant="outline" className="gap-1 border-border/60 text-[10px] text-muted-foreground">
-              <Sparkles className="h-2.5 w-2.5" /> {mode === 'chat' ? 'Conversa rápida' : mode === 'agent' ? 'Pensa + ferramentas' : 'Poder máximo'}
-            </Badge>
-          </span>
-        </div>
-
-        <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 transition-colors focus-within:border-brand/50">
-          {/* attach menu */}
-          <AttachMenu />
-
-          {/* model selector */}
-          <ModelSelector />
-
-          {/* textarea */}
+    <div className="bg-background/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
+      <div className="mx-auto w-full max-w-3xl px-3 sm:px-4">
+        <div className="rounded-[26px] border border-border bg-card shadow-sm transition-colors focus-within:border-brand/50 focus-within:shadow-md">
           <textarea
             ref={taRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(event) => setText(event.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder={mode === 'chat' ? 'Pergunte qualquer coisa…' : mode === 'agent' ? 'Descreva a tarefa — vou pensar e usar ferramentas…' : 'Descreva algo complexo — posso criar sites, deployar, executar…'}
-            className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+            placeholder="Mensagem para o OmniNinja"
+            aria-label="Mensagem para o OmniNinja"
+            className="max-h-[220px] min-h-14 w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
           />
 
-          {/* emoji + mic */}
-          <button className="hidden h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:flex">
-            <Smile className="h-4 w-4" />
-          </button>
-          <button className="hidden h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:flex">
-            <Mic className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/70 px-3 text-[11px] font-medium transition-colors hover:bg-accent"
+                  aria-label="Modelo"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-brand" />
+                  OMNINJA
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-64 border-border bg-popover p-2">
+                <div className="rounded-lg bg-accent/60 p-2.5">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Sparkles className="h-4 w-4 text-brand" /> OMNINJA
+                    <Check className="ml-auto h-4 w-4 text-brand" />
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    Modelo único do produto. O backend escolhe e usa recursos internos sem expor provedores ao usuário.
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
 
-          {/* send / stop */}
-          {running ? (
-            <Button size="icon" variant="destructive" className="h-8 w-8 rounded-lg" onClick={stop} aria-label="Parar">
-              <Square className="h-3.5 w-3.5 fill-current" />
-            </Button>
-          ) : (
-            <Button
-              size="icon"
-              className="h-8 w-8 rounded-lg"
-              onClick={submit}
-              disabled={!text.trim()}
-              aria-label="Enviar"
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label="Esforço de raciocínio"
+                >
+                  <Gauge className="h-3.5 w-3.5" />
+                  Esforço: {EFFORT_LABELS[reasoningEffort]}
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 border-border bg-popover p-1.5">
+                {(['low', 'medium', 'high'] as ReasoningEffort[]).map((effort) => (
+                  <button
+                    key={effort}
+                    type="button"
+                    onClick={() => setReasoningEffort(effort)}
+                    className={cn(
+                      'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent',
+                      reasoningEffort === effort && 'bg-accent/70',
+                    )}
+                  >
+                    <Gauge className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-medium">{EFFORT_LABELS[effort]}</span>
+                      <span className="block text-[10px] leading-relaxed text-muted-foreground">
+                        {EFFORT_DESCRIPTIONS[effort]}
+                      </span>
+                    </span>
+                    {reasoningEffort === effort && <Check className="mt-0.5 h-3.5 w-3.5 text-brand" />}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+
+            <button
+              type="button"
+              onClick={() => setThinkingEnabled(!thinkingEnabled)}
+              className={cn(
+                'flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium transition-colors',
+                thinkingEnabled
+                  ? 'bg-brand/10 text-brand hover:bg-brand/15'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+              aria-pressed={thinkingEnabled}
+              aria-label="Ativar ou desativar pensamento"
             >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-          )}
+              <Brain className="h-3.5 w-3.5" />
+              Pensamento {thinkingEnabled ? 'ativado' : 'desativado'}
+            </button>
+
+            <div className="ml-auto">
+              {running ? (
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="h-9 w-9 rounded-full"
+                  onClick={stopRun}
+                  aria-label="Parar resposta"
+                >
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  className="h-9 w-9 rounded-full"
+                  onClick={() => void submit()}
+                  disabled={!text.trim()}
+                  aria-label="Enviar mensagem"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
-        <p className="mt-1.5 text-center text-[10px] text-muted-foreground/70">
-          O Computador só abre quando a tarefa precisa de ferramentas. Enter envia · Shift+Enter quebra linha.
+
+        <p className="mt-2 text-center text-[10px] text-muted-foreground/65">
+          O esforço altera o raciocínio real do modelo. Ferramentas como web, navegador, código e arquivos são usadas internamente quando necessárias.
         </p>
       </div>
     </div>
-  );
-}
-
-function ModePill({ mode, current, setMode }: { mode: AgentMode; current: AgentMode; setMode: (m: AgentMode) => void }) {
-  const label = mode === 'agent_max' ? 'Agent MAX' : mode.charAt(0).toUpperCase() + mode.slice(1);
-  return (
-    <button
-      onClick={() => setMode(mode)}
-      className={cn(
-        'rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
-        current === mode ? 'bg-brand text-brand-foreground' : 'bg-accent text-muted-foreground hover:text-foreground'
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function AttachMenu() {
-  const items = [
-    { icon: HardDrive, label: 'Arquivos locais', hint: 'Upload' },
-    { icon: Clock, label: 'Arquivos recentes', hint: '' },
-    { icon: FileText, label: 'Tarefas recentes', hint: '' },
-    { icon: Wand2, label: 'Habilidades (Skills)', hint: '' },
-    { icon: AtSign, label: 'Mencionar', hint: '' },
-    { icon: Search, label: 'Buscar na web', hint: '' },
-  ];
-  const stubs = [
-    { icon: Paperclip, label: 'Google Drive', soon: true },
-    { icon: Figma, label: 'Figma', soon: true },
-  ];
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Anexar">
-          <Plus className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-60 border-border bg-popover p-1" align="start" sideOffset={8}>
-        <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">Anexar</div>
-        {items.map((it) => (
-          <button key={it.label} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent">
-            <it.icon className="h-4 w-4 text-muted-foreground" />
-            <span>{it.label}</span>
-            {it.hint && <span className="ml-auto text-[10px] text-muted-foreground">{it.hint}</span>}
-          </button>
-        ))}
-        <div className="my-1 border-t border-border" />
-        <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">Integrações</div>
-        {stubs.map((it) => (
-          <button key={it.label} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent" disabled>
-            <it.icon className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">{it.label}</span>
-            <Badge variant="outline" className="ml-auto h-4 px-1 text-[9px] text-muted-foreground">Em breve</Badge>
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
   );
 }

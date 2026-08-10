@@ -10,6 +10,7 @@ export type ComputerTab = 'code' | 'preview' | 'browser' | 'terminal';
 export type ProviderId =
   | 'claude' | 'chatgpt' | 'kimi' | 'grok' | 'gemini'
   | 'deepseek' | 'glm' | 'nemotron' | 'minimax' | 'qwen';
+export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface ChatMessage {
   id: string;
@@ -55,10 +56,17 @@ interface OmniState {
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearMessages: () => void;
 
+  // The product exposes one branded model: OMNINJA. `model` is retained only
+  // as an internal compatibility alias for the OpenAI-backed runtime.
   model: ProviderId;
   setModel: (m: ProviderId) => void;
   mode: AgentMode;
   setMode: (m: AgentMode) => void;
+
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (effort: ReasoningEffort) => void;
+  thinkingEnabled: boolean;
+  setThinkingEnabled: (enabled: boolean) => void;
 
   configuredProviders: ProviderId[];
   setConfiguredProviders: (p: ProviderId[]) => void;
@@ -104,12 +112,16 @@ export const useOmni = create<OmniState>((set) => ({
     })),
   clearMessages: () => set({ messages: [] }),
 
-  // OpenAI is the current real backend. Additional providers can be added when
-  // their real server integrations are implemented and configured.
   model: 'chatgpt',
   setModel: (m) => set({ model: m }),
+  // `mode` is now internal only. The user never chooses Agent/Agent MAX.
   mode: 'agent',
   setMode: (m) => set({ mode: m }),
+
+  reasoningEffort: 'medium',
+  setReasoningEffort: (reasoningEffort) => set({ reasoningEffort }),
+  thinkingEnabled: true,
+  setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
 
   configuredProviders: [],
   setConfiguredProviders: (p) => set({ configuredProviders: p }),
