@@ -36,12 +36,10 @@ export function MessageList() {
 }
 
 function MessageRow({ message }: { message: ChatMessage }) {
+  const thinkingEnabled = useOmni((state) => state.thinkingEnabled);
+
   if (message.role === 'system') {
-    return (
-      <div className="text-center text-xs text-muted-foreground">
-        {message.content}
-      </div>
-    );
+    return <div className="text-center text-xs text-muted-foreground">{message.content}</div>;
   }
 
   if (message.role === 'user') {
@@ -61,14 +59,12 @@ function MessageRow({ message }: { message: ChatMessage }) {
       </div>
       <div className="min-w-0 flex-1">
         {message.streaming && message.content === '' ? (
-          <ThinkingDots />
+          <ResponseProgress thinkingEnabled={thinkingEnabled} />
         ) : (
           <MarkdownContent content={message.content} streaming={message.streaming} />
         )}
 
-        {!message.streaming && message.content && (
-          <MessageActions content={message.content} />
-        )}
+        {!message.streaming && message.content && <MessageActions content={message.content} />}
       </div>
     </div>
   );
@@ -133,12 +129,7 @@ function MarkdownContent({ content, streaming }: { content: string; streaming?: 
                 </code>
               );
             }
-            return (
-              <CodeBlock
-                language={match?.[1] ?? 'text'}
-                value={String(children).replace(/\n$/, '')}
-              />
-            );
+            return <CodeBlock language={match?.[1] ?? 'text'} value={String(children).replace(/\n$/, '')} />;
           },
         }}
       >
@@ -178,10 +169,10 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
   );
 }
 
-function ThinkingDots() {
+function ResponseProgress({ thinkingEnabled }: { thinkingEnabled: boolean }) {
   return (
     <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
-      <span>Pensando</span>
+      <span>{thinkingEnabled ? 'Pensando' : 'Gerando resposta'}</span>
       <span className="flex gap-1">
         <span className="omni-dot h-1.5 w-1.5 rounded-full bg-brand" style={{ animationDelay: '0ms' }} />
         <span className="omni-dot h-1.5 w-1.5 rounded-full bg-brand" style={{ animationDelay: '150ms' }} />
