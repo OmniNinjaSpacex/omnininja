@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: omninininja-ai
+    name: omnininja-ai
     runtime: node
     plan: free
     renderSubdomainPolicy: enabled
@@ -25,7 +25,7 @@ services:
         value: gpt-5.1
       - key: OPENAI_BASE_URL
         value: https://api.openai.com/v1
-      - key: OMNININJA_SANDBOX_PROVIDER
+      - key: OMNINJA_SANDBOX_PROVIDER
         value: ailab
       - key: AILAB_BASE_URL
         sync: false
@@ -35,5 +35,7 @@ services:
         value: '300000'
       - key: OMNININJA_AILAB_WORKSPACE
         value: .omnininja-workspace
+      - key: OMNININJA_AILAB_FINALIZE
+        value: stop
       - key: OMNININJA_SANDBOX_ALLOW_NETWORK
         value: 'false'
