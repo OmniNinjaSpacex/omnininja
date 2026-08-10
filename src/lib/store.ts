@@ -7,9 +7,9 @@ export type { AgentEvent } from '@/lib/orchestrator';
 export type View = 'landing' | 'workspace';
 export type AgentMode = 'chat' | 'agent' | 'agent_max';
 export type ComputerTab = 'code' | 'preview' | 'browser' | 'terminal';
-export type ProviderId =
-  | 'claude' | 'chatgpt' | 'kimi' | 'grok' | 'gemini'
-  | 'deepseek' | 'glm' | 'nemotron' | 'minimax' | 'qwen';
+// OMNINJA is the only public model. OpenAI is the only model provider kept in
+// product state; Browserless/AI Lab are execution infrastructure, not models.
+export type ProviderId = 'openai';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface MessageAttachment {
@@ -19,6 +19,16 @@ export interface MessageAttachment {
   size: number;
 }
 
+export interface MessageMedia {
+  id: string;
+  kind: 'image' | 'video' | 'audio' | 'file';
+  url: string;
+  mimeType?: string;
+  name?: string;
+  status?: string;
+  progress?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -26,6 +36,7 @@ export interface ChatMessage {
   model?: string;
   streaming?: boolean;
   attachments?: MessageAttachment[];
+  media?: MessageMedia[];
   createdAt: number;
 }
 
@@ -118,7 +129,7 @@ export const useOmni = create<OmniState>((set) => ({
     })),
   clearMessages: () => set({ messages: [] }),
 
-  model: 'chatgpt',
+  model: 'openai',
   setModel: (m) => set({ model: m }),
   mode: 'agent',
   setMode: (m) => set({ mode: m }),
@@ -128,8 +139,8 @@ export const useOmni = create<OmniState>((set) => ({
   thinkingEnabled: true,
   setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
 
-  configuredProviders: [],
-  setConfiguredProviders: (p) => set({ configuredProviders: p }),
+  configuredProviders: ['openai'],
+  setConfiguredProviders: (p) => set({ configuredProviders: p.includes('openai') ? ['openai'] : [] }),
   demoMode: false,
   setDemoMode: (v) => set({ demoMode: v }),
 

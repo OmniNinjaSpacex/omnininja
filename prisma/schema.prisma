@@ -1,6 +1,6 @@
-// OmniNinja — Prisma schema (PostgreSQL)
-// Autonomous AI agent platform: users, tasks, messages, credits, integrations,
-// projects, artifacts, and an append-only event stream for replay.
+// OmniNinja — PostgreSQL schema
+// Product model is always OMNINJA; OpenAI is the private model provider.
+// Browserless and AI Lab are execution infrastructure for Manus-style tasks.
 
 generator client {
   provider = "prisma-client-js"
@@ -21,7 +21,7 @@ model User {
   credits       Int      @default(300)
   bonusCredits  Int      @default(1000)
   role          String   @default("user")
-  defaultModel  String   @default("glm")
+  defaultModel  String   @default("OMNINJA")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -65,7 +65,7 @@ model Task {
   title       String
   goal        String
   mode        String   @default("agent")
-  model       String   @default("glm")
+  model       String   @default("OMNINJA")
   status      String   @default("queued")
   summary     String?
   creditsUsed Int      @default(0)
@@ -126,7 +126,7 @@ model ScheduledTask {
   title       String
   prompt      String
   mode        String   @default("agent")
-  model       String   @default("glm")
+  model       String   @default("OMNINJA")
   schedule    String
   enabled     Boolean  @default(true)
   lastRunAt   DateTime?
