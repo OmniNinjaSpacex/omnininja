@@ -1,21 +1,9 @@
-// OmniNinja — Shell Agent com VM Sandbox (estilo Manus AI)
-// =========================================================================
-// Executa comandos bash/python/node REAIS dentro de uma "máquina virtual"
-// isolada por task — exatamente como Manus AI (E2B/Firecracker) faz.
-//
-// O isolamento é gerenciado por sandbox.ts, que detecta automaticamente
-// o melhor nível disponível no host:
-//   Nível 2: unshare + proot (namespace real do kernel)
-//   Nível 1: chroot com debootstrap (filesystem Ubuntu isolado)
-//   Nível 0: diretório isolado (fallback — sempre funciona)
-//
-// Cada task tem seu próprio workspace persistente. Path traversal é bloqueado.
-// O agente não precisa saber qual nível está rodando — a interface é a mesma.
+// OmniNinja — shell/files facade for the secure task sandbox.
+// All filesystem operations are scoped to the task workspace and production
+// shell execution is delegated to sandbox.ts, which refuses unsafe host-shell
+// fallbacks.
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { mkdirSync, existsSync, writeFileSync, readFileSync, unlinkSync, rmSync } from 'fs';
-import { join } from 'path';
+import { unlinkSync } from 'fs';
 import {
   executeInSandbox,
   sandboxFileWrite,
@@ -23,25 +11,9 @@ import {
   sandboxListFiles,
   cleanupSandbox,
   detectSandboxLevel,
+  resolveWorkspacePath,
   type SandboxLevel,
 } from './sandbox';
-
-const execAsync = promisify(exec);
-
-// Mantido para compatibilidade — sandbox.ts usa o mesmo WORKSPACE_ROOT
-const WORKSPACE_ROOT = process.env.OMNININJA_WORKSPACE_ROOT || '/opt/omnininja/workspaces';
-
-function getWorkspace(taskId: string): string {
-  const dir = join(WORKSPACE_ROOT, taskId);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, 'package.json'),
-      JSON.stringify({ name: 'omninja-sandbox', version: '1.0.0', private: true })
-    );
-  }
-  return dir;
-}
 
 export interface ShellResult {
   cmd: string;
@@ -51,11 +23,11 @@ export interface ShellResult {
   sandboxLevel?: SandboxLevel;
 }
 
-/**
- * Executa um comando DENTRO do sandbox VM isolado da task.
- * Delega para sandbox.ts que detecta o nível de isolamento automaticamente.
- */
-export async function shellExec(taskId: string, cmd: string, timeoutMs = 60000): Promise<ShellResult> {
+export async function shellExec(
+  taskId: string,
+  cmd: string,
+  timeoutMs = 60000,
+): Promise<ShellResult> {
   const result = await executeInSandbox(taskId, cmd, timeoutMs);
   return {
     cmd: result.cmd,
@@ -66,7 +38,11 @@ export async function shellExec(taskId: string, cmd: string, timeoutMs = 60000):
   };
 }
 
-export function fileWrite(taskId: string, path: string, content: string): { path: string; bytes: number } {
+export function fileWrite(
+  taskId: string,
+  path: string,
+  content: string,
+): { path: string; bytes: number } {
   return sandboxFileWrite(taskId, path, content);
 }
 
@@ -75,8 +51,13 @@ export function fileRead(taskId: string, path: string): string {
 }
 
 export function fileDelete(taskId: string, path: string): boolean {
-  const workspace = getWorkspace(taskId);
-  const safePath = join(workspace, path.replace(/^\//, ''));
+  let safePath: string;
+  try {
+    safePath = resolveWorkspacePath(taskId, path);
+  } catch {
+    return false;
+  }
+
   try {
     unlinkSync(safePath);
     return true;
@@ -94,18 +75,25 @@ export async function listFiles(taskId: string): Promise<string[]> {
 }
 
 /**
- * Expõe uma porta local para acesso público.
- * No Ubuntu: usa o trampoline nativo do OmniNinja ou um túnel.
+ * Returns the public preview URL expected by the app proxy layer.
+ * This only describes the URL; it does not claim the port is reachable.
  */
-export async function exposePort(taskId: string, port: number): Promise<{ url: string; port: number }> {
+export async function exposePort(
+  taskId: string,
+  port: number,
+): Promise<{ url: string; port: number }> {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('porta inválida');
+  }
+
   const base = process.env.OMNININJA_PUBLIC_BASE || process.env.NEXT_PUBLIC_APP_URL || '';
-  const url = base ? `${base.replace(/\/$/, '')}/proxy/${port}` : `http://localhost:${port}`;
+  const url = base
+    ? `${base.replace(/\/$/, '')}/proxy/${encodeURIComponent(String(port))}?task=${encodeURIComponent(taskId)}`
+    : `http://localhost:${port}`;
+
   return { url, port };
 }
 
-/**
- * Retorna o nível de sandbox ativo (para diagnóstico/UI).
- */
 export function getSandboxLevel(): SandboxLevel {
   return detectSandboxLevel();
 }

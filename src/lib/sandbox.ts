@@ -1,185 +1,157 @@
-// OmniNinja — VM Sandbox Manager (estilo Manus AI / E2B Firecracker)
-// =========================================================================
-// Cada task recebe uma "máquina virtual" isolada no Ubuntu, com:
-//   - namespace de mount (chroot/proot) — filesystem próprio
-//   - namespace de user/pid/net (via unshare) quando disponível
-//   - Ubuntu base com Python3, Node, bash, curl, git, pip, etc.
-//   - Rede habilitada (acesso à internet para baixar pacotes/APIs)
-//   - Workspace persistente por task (arquivos sobrevivem entre comandos)
-//
-// Arquitetura (3 níveis, do mais forte ao mais leve):
-//
-//   NÍVEL 3 (Firecracker/KVM): microVM real — não disponível em t3.small
-//         (sem nested virtualization). Pulamos este nível.
-//
-//   NÍVEL 2 (unshare + proot): namespace real do kernel Linux.
-//         Requer kernel com CONFIG_USER_NS (Ubuntu 24.04 tem por padrão).
-//         Isolamento de PID, mount, net, user. Cada task é um processo
-//         isolado que não vê processos do host nem do outras tasks.
-//         proot fornece chroot sem precisar de root real dentro do namespace.
-//         ESTE É O NÍVEL QUE USAMOS quando disponível.
-//
-//   NÍVEL 1 (chroot debootstrap): chroot clássico com bind-mount.
-//         Isolamento de filesystem apenas. Requer root (que temos via sudo).
-//         Fallback quando unshare --user não está disponível.
-//
-//   NÍVEL 0 (diretório isolado): apenas cwd+HOME por task.
-//         Sem isolamento de filesystem/PID. Fallback final.
-//         (Este era o comportamento anterior — mantido como último recurso.)
-//
-// A função detectSandboxLevel() detecta automaticamente o melhor nível
-// disponível no momento. O agente não precisa saber qual nível está rodando —
-// a interface é a mesma: executeCommand(taskId, cmd).
+// OmniNinja — secure task sandbox manager
+// Real shell execution is allowed in production only when kernel namespace
+// isolation (level 2: unshare + proot) is available. We never silently fall
+// back to executing arbitrary Agent commands directly on the production host.
 
 import { exec, execSync } from 'child_process';
 import { promisify } from 'util';
-import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync, statSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'fs';
+import { dirname, join, resolve, sep } from 'path';
 
 const execAsync = promisify(exec);
 
-// Diretórios
 const WORKSPACE_ROOT = process.env.OMNININJA_WORKSPACE_ROOT || '/opt/omnininja/workspaces';
 const SANDBOX_BASE = process.env.OMNININJA_SANDBOX_BASE || '/opt/omnininja/sandboxes';
 const SANDBOX_IMAGE = process.env.OMNININJA_SANDBOX_IMAGE || '/opt/omnininja/sandbox-base';
 
 export type SandboxLevel = 0 | 1 | 2;
 
-let _detectedLevel: SandboxLevel | null = null;
+let detectedLevel: SandboxLevel | null = null;
 
-/**
- * Detecta o nível máximo de isolamento disponível neste host.
- * Cacheia o resultado — não muda durante a execução do processo.
- */
+function safeTaskId(taskId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(taskId)) {
+    throw new Error('taskId inválido');
+  }
+  return taskId;
+}
+
+function workspaceFor(taskId: string): string {
+  return resolve(WORKSPACE_ROOT, safeTaskId(taskId));
+}
+
+function sandboxDirFor(taskId: string): string {
+  return resolve(SANDBOX_BASE, safeTaskId(taskId));
+}
+
+/** Resolve a user-controlled relative path and guarantee it stays in workspace. */
+export function resolveWorkspacePath(taskId: string, path: string): string {
+  const workspace = workspaceFor(taskId);
+  const relativePath = String(path || '').replace(/^[\\/]+/, '');
+  const candidate = resolve(workspace, relativePath || '.');
+
+  if (candidate !== workspace && !candidate.startsWith(workspace + sep)) {
+    throw new Error('path traversal bloqueado');
+  }
+  return candidate;
+}
+
+/** Detect the strongest local isolation available on this host. */
 export function detectSandboxLevel(): SandboxLevel {
-  if (_detectedLevel !== null) return _detectedLevel;
+  if (detectedLevel !== null) return detectedLevel;
 
-  // NÍVEL 2: unshare com user namespace + proot
   try {
     const hasUnshare = execSync('which unshare 2>/dev/null', { encoding: 'utf-8' }).trim();
     const hasProot = execSync('which proot 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (hasUnshare && hasProot) {
-      // Testa se unshare --user funciona (kernel deve ter CONFIG_USER_NS)
+    if (hasUnshare && hasProot && existsSync(join(SANDBOX_IMAGE, 'bin/bash'))) {
       try {
-        execSync('unshare --user --map-root-user true 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
-        _detectedLevel = 2;
-        console.log('[sandbox] Nível 2 detectado: unshare + proot (isolamento de namespace)');
+        execSync('unshare --user --map-root-user true 2>/dev/null', {
+          encoding: 'utf-8',
+          timeout: 5000,
+        });
+        detectedLevel = 2;
         return 2;
       } catch {
-        // user namespace não disponível, cai para nível 1
+        // Continue to weaker development-only levels.
       }
     }
   } catch {}
 
-  // NÍVEL 1: chroot (requer sandbox-base com debootstrap)
   if (existsSync(join(SANDBOX_IMAGE, 'bin/bash'))) {
-    _detectedLevel = 1;
-    console.log('[sandbox] Nível 1 detectado: chroot (isolamento de filesystem)');
+    detectedLevel = 1;
     return 1;
   }
 
-  // NÍVEL 0: diretório isolado (fallback)
-  _detectedLevel = 0;
-  console.log('[sandbox] Nível 0 detectado: diretório isolado (sem chroot/namespace)');
+  detectedLevel = 0;
   return 0;
 }
 
-/**
- * Cria (ou reutiliza) o sandbox para uma task.
- * Retorna o caminho da raiz do sandbox e o nível usado.
- */
-export function getSandbox(taskId: string): { root: string; level: SandboxLevel } {
-  const level = detectSandboxLevel();
-  const workspace = join(WORKSPACE_ROOT, taskId);
-
-  // Garante o workspace existe (nível 0 — sempre)
+function ensureWorkspace(taskId: string): string {
+  const workspace = workspaceFor(taskId);
   if (!existsSync(workspace)) {
     mkdirSync(workspace, { recursive: true });
     writeFileSync(
       join(workspace, 'package.json'),
-      JSON.stringify({ name: 'omninja-sandbox', version: '1.0.0', private: true })
+      JSON.stringify({ name: 'omninja-sandbox', version: '1.0.0', private: true }),
     );
   }
+  return workspace;
+}
 
-  if (level === 0) {
-    return { root: workspace, level: 0 };
-  }
+export function getSandbox(taskId: string): { root: string; level: SandboxLevel } {
+  const level = detectSandboxLevel();
+  const workspace = ensureWorkspace(taskId);
 
-  // Níveis 1 e 2: cada task tem seu próprio overlay do sandbox-base
-  const sandboxDir = join(SANDBOX_BASE, taskId);
-  if (!existsSync(sandboxDir)) {
-    mkdirSync(sandboxDir, { recursive: true });
-  }
+  if (level === 0) return { root: workspace, level };
 
-  // Se a imagem base existe, prepara o overlay (bind-mount ou cópia leve)
-  if (level === 1 && existsSync(SANDBOX_IMAGE)) {
-    // Para chroot: precisamos que o sandboxDir tenha uma árvore mínima.
-    // Em vez de copiar tudo (caro), usamos bind-mount via setup runtime.
-    // Aqui só garantimos que /workspace dentro do sandbox aponta para o workspace real.
-    const wsInSandbox = join(sandboxDir, 'workspace');
-    if (!existsSync(wsInSandbox)) {
-      try {
-        execSync(`ln -sf "${workspace}" "${wsInSandbox}"`, { stdio: 'ignore' });
-      } catch {}
-    }
-  }
-
-  if (level === 2 && existsSync(SANDBOX_IMAGE)) {
-    // proot: monta o sandbox-base como raiz com --rootfs
-    // O workspace é bind via proot -b
-    // Nada a preparar aqui — proot faz tudo em runtime.
-  }
+  const sandboxDir = sandboxDirFor(taskId);
+  if (!existsSync(sandboxDir)) mkdirSync(sandboxDir, { recursive: true });
 
   return { root: sandboxDir, level };
 }
 
-/**
- * Constrói o comando wrapper que executa `cmd` DENTRO do sandbox isolado.
- */
-function wrapCommand(taskId: string, cmd: string, sandbox: { root: string; level: SandboxLevel }): string {
-  const { root, level } = sandbox;
-  const workspace = join(WORKSPACE_ROOT, taskId);
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
 
-  if (level === 2 && existsSync(SANDBOX_IMAGE)) {
-    // NÍVEL 2: unshare + proot
-    // unshare cria namespaces isolados; proot faz chroot sem root real.
-    // -b bind-mount do workspace em /workspace dentro do sandbox
-    // --rootfs aponta para a imagem base (Ubuntu com Python/Node/etc.)
+function wrapCommand(taskId: string, cmd: string, sandbox: { root: string; level: SandboxLevel }): string {
+  const workspace = workspaceFor(taskId);
+
+  if (sandbox.level === 2 && existsSync(SANDBOX_IMAGE)) {
     const prootCmd = [
       'proot',
-      `-r "${SANDBOX_IMAGE}"`,
-      `-b "${workspace}:/workspace"`,
-      `-b /dev:/dev`,
-      `-b /proc:/proc`,
-      `-b /sys:/sys`,
-      `-b /etc/resolv.conf:/etc/resolv.conf`,
-      `--cwd /workspace`,
+      `-r ${shellQuote(SANDBOX_IMAGE)}`,
+      `-b ${shellQuote(`${workspace}:/workspace`)}`,
+      '-b /dev:/dev',
+      '-b /proc:/proc',
+      '-b /etc/resolv.conf:/etc/resolv.conf',
+      '--cwd /workspace',
       `-- /bin/bash -lc ${shellQuote(cmd)}`,
     ].join(' ');
-    return `unshare --user --map-root-user --pid --mount --net --fork ${prootCmd}`;
+
+    // Default: isolate network too. A dedicated production sandbox host may
+    // explicitly allow outbound networking while stronger egress controls are
+    // configured there.
+    const networkFlag = process.env.OMNININJA_SANDBOX_ALLOW_NETWORK === 'true' ? '' : '--net';
+    return `unshare --user --map-root-user --pid --mount ${networkFlag} --fork ${prootCmd}`;
   }
 
-  if (level === 1 && existsSync(SANDBOX_IMAGE)) {
-    // NÍVEL 1: chroot clássico (requer root)
-    // Bind-mount do workspace dentro do chroot
-    const chrootDir = root;
-    // Garante bind-mount do workspace (idempotente)
-    const wsMount = join(chrootDir, 'workspace');
-    if (!existsSync(wsMount)) {
-      mkdirSync(wsMount, { recursive: true });
-    }
-    // Tenta bind-mount (ignora se já montado ou falhar)
-    execSync(`mount --bind "${workspace}" "${wsMount}" 2>/dev/null || true`, { stdio: 'ignore' });
-    // Executa dentro do chroot
-    return `chroot "${SANDBOX_IMAGE}" /bin/bash -lc ${shellQuote(`cd /workspace && ${cmd}`)}`;
+  if (sandbox.level === 1 && existsSync(SANDBOX_IMAGE)) {
+    // Development-only fallback. Production execution is blocked below because
+    // a shared chroot is not sufficient tenant isolation for public users.
+    return `chroot ${shellQuote(SANDBOX_IMAGE)} /bin/bash -lc ${shellQuote(`cd /workspace && ${cmd}`)}`;
   }
 
-  // NÍVEL 0: executa no workspace diretamente
   return cmd;
 }
 
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
+function safeChildEnv(taskId: string, level: SandboxLevel): NodeJS.ProcessEnv {
+  const workspace = ensureWorkspace(taskId);
+  const tmp = resolveWorkspacePath(taskId, '.tmp');
+  if (!existsSync(tmp)) mkdirSync(tmp, { recursive: true });
+
+  // Intentionally DO NOT spread process.env here. API keys, database URLs,
+  // cookies, cloud credentials and deployment secrets must never enter Agent
+  // shell processes.
+  return {
+    PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    HOME: level === 0 ? workspace : '/root',
+    TERM: 'xterm-256color',
+    LANG: 'C.UTF-8',
+    LC_ALL: 'C.UTF-8',
+    TMPDIR: level === 0 ? tmp : '/tmp',
+    NODE_ENV: 'production',
+    CI: '1',
+  };
 }
 
 export interface SandboxResult {
@@ -190,32 +162,37 @@ export interface SandboxResult {
   sandboxLevel: SandboxLevel;
 }
 
-/**
- * Executa um comando DENTRO do sandbox isolado da task.
- * Este é o coração do sistema VM — igual ao Manus AI, cada task
- * roda numa "máquina virtual" separada.
- */
 export async function executeInSandbox(
   taskId: string,
   cmd: string,
-  timeoutMs = 60000
+  timeoutMs = 60000,
 ): Promise<SandboxResult> {
   const sandbox = getSandbox(taskId);
+
+  // Public production users must never get arbitrary host-shell execution.
+  if (process.env.NODE_ENV === 'production' && sandbox.level < 2) {
+    return {
+      cmd,
+      stdout: '',
+      stderr:
+        'Secure sandbox unavailable on this host. Shell execution was blocked instead of falling back to the production server.',
+      exitCode: 126,
+      sandboxLevel: sandbox.level,
+    };
+  }
+
   const wrappedCmd = wrapCommand(taskId, cmd, sandbox);
-  const cwd = sandbox.level === 0 ? join(WORKSPACE_ROOT, taskId) : process.cwd();
+  const cwd = sandbox.level === 0 ? workspaceFor(taskId) : process.cwd();
+  const safeTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 60000, 10 * 60 * 1000));
 
   try {
     const { stdout, stderr } = await execAsync(wrappedCmd, {
       cwd,
-      timeout: timeoutMs,
+      timeout: safeTimeout,
       maxBuffer: 2 * 1024 * 1024,
-      env: {
-        ...process.env,
-        HOME: sandbox.level === 0 ? join(WORKSPACE_ROOT, taskId) : '/root',
-        PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-        TERM: 'xterm-256color',
-      },
+      env: safeChildEnv(taskId, sandbox.level),
     });
+
     return {
       cmd,
       stdout: stdout.slice(0, 20000),
@@ -223,39 +200,38 @@ export async function executeInSandbox(
       exitCode: 0,
       sandboxLevel: sandbox.level,
     };
-  } catch (err: any) {
+  } catch (error: any) {
     return {
       cmd,
-      stdout: (err.stdout ?? '').slice(0, 20000),
-      stderr: (err.stderr ?? err.message ?? '').slice(0, 8000),
-      exitCode: err.code ?? 1,
+      stdout: String(error?.stdout ?? '').slice(0, 20000),
+      stderr: String(error?.stderr ?? error?.message ?? '').slice(0, 8000),
+      exitCode: typeof error?.code === 'number' ? error.code : 1,
       sandboxLevel: sandbox.level,
     };
   }
 }
 
-/**
- * Escreve um arquivo no workspace da task (com path traversal blocking).
- */
-export function sandboxFileWrite(taskId: string, path: string, content: string): { path: string; bytes: number } {
-  const workspace = join(WORKSPACE_ROOT, taskId);
-  if (!existsSync(workspace)) {
-    mkdirSync(workspace, { recursive: true });
-  }
-  const safePath = join(workspace, path.replace(/^\//, ''));
-  const rel = safePath.slice(workspace.length);
-  if (rel.startsWith('..')) throw new Error('path traversal bloqueado');
-  mkdirSync(join(safePath, '..'), { recursive: true });
-  writeFileSync(safePath, content);
-  return { path: safePath, bytes: content.length };
+export function sandboxFileWrite(
+  taskId: string,
+  path: string,
+  content: string,
+): { path: string; bytes: number } {
+  ensureWorkspace(taskId);
+  const safePath = resolveWorkspacePath(taskId, path);
+  mkdirSync(dirname(safePath), { recursive: true });
+  writeFileSync(safePath, content, 'utf-8');
+  return { path: safePath, bytes: Buffer.byteLength(content, 'utf-8') };
 }
 
-/**
- * Lê um arquivo do workspace da task.
- */
 export function sandboxFileRead(taskId: string, path: string): string {
-  const workspace = join(WORKSPACE_ROOT, taskId);
-  const safePath = join(workspace, path.replace(/^\//, ''));
+  ensureWorkspace(taskId);
+  let safePath: string;
+  try {
+    safePath = resolveWorkspacePath(taskId, path);
+  } catch (error: any) {
+    return `Error: ${error?.message || 'path inválido'}`;
+  }
+
   try {
     return readFileSync(safePath, 'utf-8').slice(0, 30000);
   } catch {
@@ -263,43 +239,32 @@ export function sandboxFileRead(taskId: string, path: string): string {
   }
 }
 
-/**
- * Lista arquivos no workspace da task.
- */
 export async function sandboxListFiles(taskId: string): Promise<string[]> {
-  const workspace = join(WORKSPACE_ROOT, taskId);
+  const workspace = ensureWorkspace(taskId);
   try {
-    const { stdout } = await execAsync('find . -type f 2>/dev/null | head -100', { cwd: workspace });
+    const { stdout } = await execAsync('find . -type f -print 2>/dev/null | head -100', {
+      cwd: workspace,
+      timeout: 10000,
+      env: safeChildEnv(taskId, 0),
+    });
     return stdout.split('\n').filter(Boolean);
   } catch {
     return [];
   }
 }
 
-/**
- * Limpa o sandbox da task (remove workspace e overlay).
- */
 export function cleanupSandbox(taskId: string) {
-  const workspace = join(WORKSPACE_ROOT, taskId);
-  if (existsSync(workspace)) {
-    rmSync(workspace, { recursive: true, force: true });
-  }
-  const sandboxDir = join(SANDBOX_BASE, taskId);
-  if (existsSync(sandboxDir)) {
-    // Tenta desmontar antes de remover (se houver bind-mount)
-    try {
-      execSync(`umount "${join(sandboxDir, 'workspace')}" 2>/dev/null || true`, { stdio: 'ignore' });
-    } catch {}
-    rmSync(sandboxDir, { recursive: true, force: true });
-  }
+  const workspace = workspaceFor(taskId);
+  if (existsSync(workspace)) rmSync(workspace, { recursive: true, force: true });
+
+  const sandboxDir = sandboxDirFor(taskId);
+  if (existsSync(sandboxDir)) rmSync(sandboxDir, { recursive: true, force: true });
 }
 
-/**
- * Verifica a saúde do sistema de sandbox (para diagnóstico).
- */
 export function sandboxHealth(): {
   level: SandboxLevel;
   levelName: string;
+  productionSafe: boolean;
   hasUnshare: boolean;
   hasProot: boolean;
   hasBaseImage: boolean;
@@ -309,6 +274,7 @@ export function sandboxHealth(): {
 } {
   let hasUnshare = false;
   let hasProot = false;
+
   try {
     execSync('which unshare', { stdio: 'ignore' });
     hasUnshare = true;
@@ -321,7 +287,8 @@ export function sandboxHealth(): {
   const level = detectSandboxLevel();
   return {
     level,
-    levelName: level === 2 ? 'namespace+proot' : level === 1 ? 'chroot' : 'directory',
+    levelName: level === 2 ? 'namespace+proot' : level === 1 ? 'chroot-development-only' : 'directory-development-only',
+    productionSafe: level === 2,
     hasUnshare,
     hasProot,
     hasBaseImage: existsSync(join(SANDBOX_IMAGE, 'bin/bash')),
