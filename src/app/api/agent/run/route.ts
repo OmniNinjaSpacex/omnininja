@@ -1,5 +1,5 @@
 // OmniNinja — production Agent runner (SSE)
-// POST { goal, mode, model?, browserWSEndpoint? }
+// POST { goal, mode, model?, browserSessionTicket? }
 // Real execution only: OpenAI Responses API + real tools. No simulated fallback.
 
 import { getCurrentUser } from '@/lib/auth';
@@ -7,6 +7,10 @@ import { consumeCredits, CREDIT_COSTS } from '@/lib/credits';
 import { db } from '@/lib/db';
 import { runOpenAIAgentLoop } from '@/lib/openai-agent-loop';
 import { createInteractiveBrowserSession, runWithBrowserSession } from '@/lib/browser-agent';
+import {
+  createBrowserSessionTicket,
+  verifyBrowserSessionTicket,
+} from '@/lib/browser-session-ticket';
 import type { AgentEvent } from '@/lib/orchestrator';
 
 export const runtime = 'nodejs';
@@ -14,9 +18,9 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
 
 function browserReconnectTimeout(): number {
-  const value = Number(process.env.BROWSERLESS_RECONNECT_TIMEOUT_MS || 10000);
-  if (!Number.isFinite(value)) return 10000;
-  return Math.max(5000, Math.min(value, 300000));
+  const value = Number(process.env.BROWSERLESS_RECONNECT_TIMEOUT_MS || 10 * 60 * 1000);
+  if (!Number.isFinite(value)) return 10 * 60 * 1000;
+  return Math.max(60_000, Math.min(value, 30 * 60 * 1000));
 }
 
 export async function POST(req: Request) {
@@ -24,9 +28,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as any));
   const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
   const mode = typeof body.mode === 'string' ? body.mode : 'agent';
-  const requestedBrowserWSEndpoint = typeof body.browserWSEndpoint === 'string' && body.browserWSEndpoint.trim()
-    ? body.browserWSEndpoint.trim()
-    : undefined;
+  const browserSessionTicket =
+    typeof body.browserSessionTicket === 'string' && body.browserSessionTicket.trim()
+      ? body.browserSessionTicket.trim()
+      : undefined;
 
   if (!goal) {
     return Response.json({ error: 'goal required' }, { status: 400 });
@@ -41,6 +46,23 @@ export async function POST(req: Request) {
       { error: 'OmniNinja Agent indisponível: OPENAI_API_KEY não configurada no servidor.' },
       { status: 503 },
     );
+  }
+
+  // Resolve human-takeover browser state before charging credits. The client
+  // can never submit a raw Browserless reconnect endpoint.
+  let requestedBrowserWSEndpoint: string | undefined;
+  if (browserSessionTicket) {
+    try {
+      requestedBrowserWSEndpoint = verifyBrowserSessionTicket(
+        browserSessionTicket,
+        user.id,
+      ).browserWSEndpoint;
+    } catch {
+      return Response.json(
+        { error: 'browserSessionTicket inválido, expirado ou não pertence a esta conta.' },
+        { status: 400 },
+      );
+    }
   }
 
   const effectiveModel = process.env.OPENAI_AGENT_MODEL || process.env.OPENAI_MODEL || 'gpt-5';
@@ -103,6 +125,7 @@ export async function POST(req: Request) {
         let browserWSEndpoint = requestedBrowserWSEndpoint;
         let browserLiveURL: string | undefined;
         let browserExpiresInMs: number | undefined;
+        let browserTicketForClient: string | undefined;
 
         if (!browserWSEndpoint && process.env.BROWSERLESS_API_KEY?.trim()) {
           try {
@@ -113,12 +136,25 @@ export async function POST(req: Request) {
             browserWSEndpoint = session.browserWSEndpoint;
             browserLiveURL = session.liveURL;
             browserExpiresInMs = session.expiresInMs;
+
+            // Ticket creation is optional for automatic Agent execution. If the
+            // signing secret is configured, the UI can securely resume/take over
+            // this exact browser session without ever seeing the raw endpoint.
+            try {
+              browserTicketForClient = createBrowserSessionTicket({
+                userId: user.id,
+                browserWSEndpoint: session.browserWSEndpoint,
+                expiresInMs: session.expiresInMs,
+              });
+            } catch {
+              browserTicketForClient = undefined;
+            }
           } catch (browserError: any) {
             onEvent({
               type: 'AGENT_THINKING',
               taskId,
               agent: 'Browser',
-              text: `Sessão Browserless interativa indisponível: ${browserError?.message || 'erro desconhecido'}. O agente tentará o navegador configurado no servidor.`,
+              text: `Sessão Browserless interativa indisponível: ${browserError?.message || 'erro desconhecido'}. O Agent continuará sem afirmar que o navegador foi aberto.`,
               ts: Date.now(),
             });
           }
@@ -138,6 +174,7 @@ export async function POST(req: Request) {
             type: 'browser_session',
             taskId,
             liveURL: browserLiveURL,
+            browserSessionTicket: browserTicketForClient,
             expiresInMs: browserExpiresInMs,
           });
         }
@@ -169,7 +206,6 @@ export async function POST(req: Request) {
           },
         });
 
-        // `done` is emitted only after execution and persistence both succeeded.
         send({ type: 'done', taskId, model: effectiveModel });
       } catch (err: any) {
         const message = err?.message || 'Agent error';
