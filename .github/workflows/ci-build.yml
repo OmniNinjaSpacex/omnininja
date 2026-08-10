@@ -38,6 +38,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate AI Lab host bootstrap
+        run: bash -n infra/ailab-host/bootstrap.sh
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
