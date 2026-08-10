@@ -2,24 +2,28 @@
 
 OmniNinja é uma plataforma de IA conversacional com um único modelo público (`OMNINJA`), níveis de esforço, pensamento opcional, anexos, histórico, ferramentas internas e execução de tarefas.
 
-## Deploy rápido no Render
+## Hospedagem pública
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/OmniNinjaSpacex/omnininja)
+A interface pública será publicada com **ChatGPT Sites**, usando a URL de produção gerada automaticamente pelo próprio ChatGPT Sites. Não usamos domínio personalizado e não usamos Render como endereço público.
 
-O botão acima usa o `render.yaml` deste repositório para criar um Web Service público no Render. Depois de aprovado no painel, o Render gera o endereço `*.onrender.com` do serviço.
+O endereço público só existe depois que o Site for realmente publicado no ChatGPT Sites. Um endereço antigo ou apenas planejado não deve ser tratado como site ativo.
 
-### Variáveis obrigatórias
+## Arquitetura
 
-Configure os valores no painel do Render. Nunca coloque chaves reais no GitHub.
+- **Frontend público:** ChatGPT Sites.
+- **Modelo:** OMNINJA usando OpenAI no backend.
+- **Banco:** PostgreSQL.
+- **Browser:** Browserless quando configurado.
+- **Sandbox Linux:** provider remoto baseado em AI Lab/LXD.
+- **Segurança:** execução de shell continua fail-closed; se o sandbox remoto não estiver autenticado e disponível, o OmniNinja não executa comandos arbitrários no servidor principal como fallback.
 
-- `DATABASE_URL` — PostgreSQL de produção.
-- `OPENAI_API_KEY` — chave usada internamente pelo OMNINJA.
+## AI Lab
 
-O Blueprint gera `NEXTAUTH_SECRET` automaticamente e já configura `OMNINJA_MODEL`, `OPENAI_BASE_URL`, `HOSTNAME=0.0.0.0` e o health check `/api/health`.
+Base upstream estudada para o sandbox remoto:
 
-## Estado do sandbox
+`https://github.com/lemonade-sdk/ailab`
 
-O shell local continua fail-closed em produção: se não houver isolamento seguro, comandos arbitrários não são executados no host do site. A integração remota com AI Lab/LXD está sendo preparada como provider separado.
+O AI Lab oferece containers Linux gerenciados, API autenticada e terminal via WebSocket. A integração do OmniNinja deve manter cada tarefa isolada em seu próprio ambiente e nunca enviar segredos do servidor para o container.
 
 ## CI
 
