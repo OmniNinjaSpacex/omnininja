@@ -4,7 +4,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.1';
+const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.6';
 
 export async function GET() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -31,7 +31,7 @@ export async function GET() {
           configured: true,
           model: 'OMNINJA',
           upstreamStatus: response.status,
-          error: payload?.error?.message || 'OpenAI não confirmou acesso ao modelo configurado',
+          error: payload?.error?.message || 'OpenAI não confirmou acesso ao mecanismo privado configurado',
           latencyMs: Date.now() - startedAt,
         },
         { status: 503 },
