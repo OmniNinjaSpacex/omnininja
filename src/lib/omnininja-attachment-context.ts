@@ -2,7 +2,7 @@ import type { OmniNinjaAttachment } from './omnininja-attachments';
 import { isImageAttachment } from './omnininja-attachments';
 
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.1';
+const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.6';
 
 function requireApiKey(): string {
   const key = process.env.OPENAI_API_KEY?.trim();
@@ -38,11 +38,12 @@ export async function buildAttachmentContext(
     {
       type: 'input_text',
       text: [
-        'Prepare context for another assistant response.',
-        'Analyze every attached item carefully and preserve concrete facts, text, numbers, structure, visible UI details and filenames.',
-        'For documents, extract the relevant text and tables as faithfully as possible.',
+        'Prepare compact private context for the next OMNINJA response.',
+        'Analyze every attachment carefully and preserve concrete facts, text, numbers, structure, visible UI details and filenames.',
+        'For documents, extract relevant text and tables faithfully.',
         'For images, describe visible content and read legible text.',
-        'Do not answer the user request yet. Return only a compact but information-rich attachment digest in Brazilian Portuguese.',
+        'Do not answer the user request yet and do not mention this preprocessing step.',
+        'Return only a compact, information-rich attachment digest in Brazilian Portuguese.',
       ].join(' '),
     },
   ];
@@ -75,7 +76,7 @@ export async function buildAttachmentContext(
       model: OMNINJA_MODEL,
       input: [{ role: 'user', content }],
       max_output_tokens: 5000,
-      reasoning: { effort: 'low' },
+      reasoning: { effort: 'low', context: 'current_turn' },
       store: false,
     }),
     cache: 'no-store',
