@@ -2,9 +2,8 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getCreditBalance } from '@/lib/credits';
 
-// Production capability snapshot for the current account.
-// Never advertise fake/demo providers: the UI must reflect what the server can
-// actually execute with the configured secrets.
+// Truthful capability snapshot. The public product exposes one model identity:
+// OMNINJA. Provider implementation details remain server-side.
 export async function GET() {
   const user = await getCurrentUser();
   const balance = await getCreditBalance(user.id);
@@ -22,17 +21,15 @@ export async function GET() {
       bonusCredits: balance.bonusCredits,
       role: user.role,
     },
+    model: openAIReady ? 'OMNINJA' : null,
     providers: openAIReady ? ['chatgpt'] : [],
-
-    // The old UI calls this field demoMode. We deliberately keep it false:
-    // production never runs a simulated AI fallback. Capability failures are
-    // reported explicitly by /api/chat and /api/agent/run.
     demoMode: false,
-
     capabilities: {
       chat: openAIReady,
-      agent: openAIReady,
+      tools: openAIReady,
       browserless: browserlessReady,
+      reasoningEffort: openAIReady,
+      thinkingToggle: openAIReady,
     },
   });
 }
