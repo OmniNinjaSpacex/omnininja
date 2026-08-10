@@ -1,0 +1,44 @@
+name: Production smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public site
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://omnininja-agent-os.gbvinidutra.chatgpt.site"
+          echo "Checking $BASE_URL"
+          curl --fail --show-error --silent --location --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
+            --output /tmp/home.html --write-out 'HTTP %{http_code}\n' "$BASE_URL/"
+          test -s /tmp/home.html
+
+      - name: Check OMNINJA OpenAI health
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://omnininja-agent-os.gbvinidutra.chatgpt.site"
+          HTTP_CODE="$(curl --show-error --silent --location --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 45 \
+            --output /tmp/openai-health.json --write-out '%{http_code}' "$BASE_URL/api/health/openai")"
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/openai-health.json
+          python - <<'PY'
+          import json, sys
+          with open('/tmp/openai-health.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          print('\nParsed health:', data)
+          if data.get('operational') is not True:
+              print('OMNINJA OpenAI health is not operational.', file=sys.stderr)
+              sys.exit(1)
+          PY
+          test "$HTTP_CODE" = "200"
