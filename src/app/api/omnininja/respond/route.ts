@@ -1,5 +1,5 @@
 // Unified OMNINJA response endpoint.
-// One conversation surface; tools and reasoning are internal implementation details.
+// One conversation surface; tools, providers and private reasoning stay server-side.
 
 import { getCurrentUser } from '@/lib/auth';
 import { consumeCredits, CREDIT_COSTS } from '@/lib/credits';
@@ -56,6 +56,62 @@ function normalizeAttachments(value: unknown): OmniNinjaAttachment[] {
   return normalized;
 }
 
+function publicActivityLabel(event: AgentEvent): string {
+  if (event.type === 'TASK_STARTED') return 'Pensando…';
+  if (event.type !== 'STEP_STARTED') return 'Trabalhando…';
+
+  const instruction = String((event as any).instruction || '');
+  if (instruction === 'web_search') return 'Pesquisando na web…';
+  if (instruction === 'browser_navigate') return 'Abrindo uma página…';
+  if (instruction === 'browser_get_text') return 'Analisando uma página…';
+  if (instruction === 'browser_screenshot') return 'Verificando visualmente…';
+  if (instruction === 'browser_click' || instruction === 'browser_type') return 'Interagindo com uma página…';
+  if (instruction === 'shell_exec') return 'Executando e verificando…';
+  if (instruction === 'file_read' || instruction === 'file_list') return 'Analisando arquivos…';
+  if (instruction === 'file_write') return 'Preparando arquivos…';
+  return 'Trabalhando na tarefa…';
+}
+
+function publicActivityEvent(event: AgentEvent): AgentEvent | null {
+  if (event.type === 'TASK_STARTED') {
+    return {
+      type: 'TASK_STARTED',
+      taskId: event.taskId,
+      goal: '',
+      ts: event.ts,
+    };
+  }
+
+  if (event.type === 'STEP_STARTED') {
+    return {
+      type: 'STEP_STARTED',
+      taskId: event.taskId,
+      stepId: event.stepId,
+      agent: 'OMNINJA',
+      instruction: publicActivityLabel(event),
+      ts: event.ts,
+    };
+  }
+
+  return null;
+}
+
+function streamChunks(text: string): string[] {
+  if (!text) return [];
+  const chunks: string[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    let next = Math.min(text.length, cursor + 48);
+    if (next < text.length) {
+      const boundary = text.lastIndexOf(' ', next);
+      if (boundary > cursor + 18) next = boundary + 1;
+    }
+    chunks.push(text.slice(cursor, next));
+    cursor = next;
+  }
+  return chunks;
+}
+
 export async function POST(req: Request) {
   const user = await getCurrentUser();
 
@@ -75,7 +131,7 @@ export async function POST(req: Request) {
         typeof message?.content === 'string' &&
         message.content.trim(),
     )
-    .slice(-24)
+    .slice(-40)
     .map((message: any) => ({
       role: message.role as 'user' | 'assistant',
       content: message.content.trim(),
@@ -105,9 +161,9 @@ export async function POST(req: Request) {
         content: [
           originalUserText,
           '',
-          '--- Contexto dos anexos desta mensagem ---',
+          '--- Contexto privado dos anexos desta mensagem ---',
           attachmentContext,
-          '--- Fim do contexto dos anexos ---',
+          '--- Fim do contexto privado ---',
         ].join('\n'),
       };
     } catch (error: any) {
@@ -153,19 +209,18 @@ export async function POST(req: Request) {
       const persistedEvents: { type: string; payload: string }[] = [];
 
       const onEvent = (event: AgentEvent) => {
-        const { screenshotBase64, ...safeEvent } = event as any;
+        // Full internal event data stays server-side for replay/audit. Screenshots
+        // are intentionally omitted from the persisted JSON payload.
+        const { screenshotBase64, ...safeInternalEvent } = event as any;
         persistedEvents.push({
           type: event.type,
-          payload: JSON.stringify(safeEvent),
+          payload: JSON.stringify(safeInternalEvent),
         });
 
-        if (
-          event.type === 'STEP_STARTED' ||
-          event.type === 'STEP_COMPLETED' ||
-          event.type === 'TASK_STARTED'
-        ) {
-          send({ type: 'activity', event: safeEvent });
-        }
+        // The browser only gets a human status. Never send tool names, selectors,
+        // shell commands, stdout/stderr, file contents or internal observations.
+        const publicEvent = publicActivityEvent(event);
+        if (publicEvent) send({ type: 'activity', event: publicEvent });
       };
 
       try {
@@ -216,10 +271,13 @@ export async function POST(req: Request) {
           },
         });
 
+        for (const delta of streamChunks(finalText)) {
+          send({ type: 'delta', taskId, delta });
+        }
         send({ type: 'final', taskId, text: finalText, model: 'OMNINJA' });
         send({ type: 'done', taskId, model: 'OMNINJA' });
       } catch (error: any) {
-        const message = error?.message || 'Falha no OMNINJA';
+        const internalMessage = error?.message || 'Falha no OMNINJA';
 
         if (persistedEvents.length > 0) {
           await db.eventRow.createMany({
@@ -235,15 +293,17 @@ export async function POST(req: Request) {
           where: { id: taskId },
           data: {
             status: 'failed',
-            summary: String(message).slice(0, 500),
+            summary: String(internalMessage).slice(0, 500),
             finishedAt: new Date(),
           },
         }).catch(() => {});
 
-        send({ type: 'error', taskId, error: message });
+        send({
+          type: 'error',
+          taskId,
+          error: 'Não consegui concluir esta resposta. Tente novamente em instantes.',
+        });
       } finally {
-        // Stop/delete/keep the remote task container according to the configured
-        // lifecycle policy. Errors here must not replace the user's task result.
         await finalizeWorkspace(taskId).catch(() => {});
         controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
         controller.close();
