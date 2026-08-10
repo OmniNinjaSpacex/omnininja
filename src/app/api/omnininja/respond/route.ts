@@ -15,6 +15,7 @@ import {
   type OmniNinjaAttachment,
 } from '@/lib/omnininja-attachments';
 import { buildAttachmentContext } from '@/lib/omnininja-attachment-context';
+import { finalizeWorkspace } from '@/lib/shell-agent';
 import type { AgentEvent } from '@/lib/orchestrator';
 
 export const runtime = 'nodejs';
@@ -241,6 +242,9 @@ export async function POST(req: Request) {
 
         send({ type: 'error', taskId, error: message });
       } finally {
+        // Stop/delete/keep the remote task container according to the configured
+        // lifecycle policy. Errors here must not replace the user's task result.
+        await finalizeWorkspace(taskId).catch(() => {});
         controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
         controller.close();
       }
