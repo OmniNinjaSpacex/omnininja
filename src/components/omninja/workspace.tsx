@@ -52,7 +52,11 @@ const quickActions = [
   { icon: MoreHorizontal, label: 'Mais', prompt: 'Quero realizar uma tarefa complexa: ' },
 ];
 
-const effortLabel: Record<ReasoningEffort, string> = { low: 'Baixo', medium: 'Médio', high: 'Alto' };
+const effortLabel: Record<ReasoningEffort, string> = {
+  low: 'Baixo',
+  medium: 'Médio',
+  high: 'Alto',
+};
 
 export function Workspace() {
   const router = useRouter();
@@ -79,10 +83,10 @@ export function Workspace() {
     try {
       const response = await fetch('/api/me', { cache: 'no-store' });
       const data = await response.json().catch(() => ({} as any));
-      if (!response.ok || !data?.user) throw new Error(data?.error || `Falha ao carregar sessão (HTTP ${response.status})`);
+      if (!response.ok || !data?.user) {
+        throw new Error(data?.error || `Falha ao carregar sessão (HTTP ${response.status})`);
+      }
       useOmni.getState().setUser(data.user);
-      useOmni.getState().setConfiguredProviders(Array.isArray(data.providers) ? data.providers : []);
-      useOmni.getState().setDemoMode(false);
       setCapabilities(data.capabilities ?? null);
       setSessionError('');
     } catch (error: any) {
@@ -95,7 +99,9 @@ export function Workspace() {
     try {
       const response = await fetch('/api/conversations', { cache: 'no-store' });
       const data = await response.json().catch(() => ({} as any));
-      if (response.ok && Array.isArray(data.conversations)) setConversations(data.conversations);
+      if (response.ok && Array.isArray(data.conversations)) {
+        setConversations(data.conversations);
+      }
     } finally {
       setHistoryLoading(false);
     }
@@ -116,7 +122,9 @@ export function Workspace() {
   }, [loadSession, loadConversations, checkOpenAI]);
 
   useEffect(() => {
-    if (currentTask?.status === 'completed' || currentTask?.status === 'failed') void loadConversations();
+    if (currentTask?.status === 'completed' || currentTask?.status === 'failed') {
+      void loadConversations();
+    }
   }, [currentTask?.status, loadConversations]);
 
   const newTask = () => {
@@ -131,6 +139,7 @@ export function Workspace() {
       const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { cache: 'no-store' });
       const data = await response.json().catch(() => ({} as any));
       if (!response.ok || !data?.conversation?.messages) return;
+
       clearMessages();
       for (const message of data.conversation.messages as Array<any>) {
         const chatMessage: ChatMessage = {
@@ -226,7 +235,7 @@ export function Workspace() {
 
           <div className="relative">
             <button
-              onClick={() => setModelMenuOpen((v) => !v)}
+              onClick={() => setModelMenuOpen((value) => !value)}
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[14px] font-semibold text-white/90 transition hover:bg-white/[0.055]"
             >
               OMNINJA <ChevronDown className="h-3.5 w-3.5 text-white/40" />
@@ -288,7 +297,9 @@ export function Workspace() {
           </div>
         )}
         {capabilities && capabilities.chat === false && (
-          <div className="mx-3 rounded-xl bg-amber-400/[0.06] px-3 py-2 text-[11px] text-amber-300">OMNINJA ainda não está configurado neste deploy.</div>
+          <div className="mx-3 rounded-xl bg-amber-400/[0.06] px-3 py-2 text-[11px] text-amber-300">
+            OMNINJA ainda não está configurado neste deploy.
+          </div>
         )}
 
         <main className="relative flex min-h-0 flex-1 flex-col">
@@ -297,7 +308,8 @@ export function Workspace() {
               <div className="min-h-0 flex-1 overflow-hidden"><MessageList /></div>
               {taskActivity && (
                 <div className="mx-auto w-full max-w-[768px] px-4 pb-1 text-[11px] text-white/40">
-                  <span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-300" />{taskActivity}
+                  <span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-300" />
+                  {taskActivity}
                 </div>
               )}
               <ChatInput />
@@ -319,7 +331,9 @@ function HomeComposer() {
           <Sparkles className="h-5 w-5" />
         </div>
         <h1 className="text-center text-[30px] font-semibold tracking-[-.03em] text-white/95 sm:text-[36px]">O que posso fazer por você?</h1>
-        <p className="mx-auto mt-2 max-w-lg text-center text-[13px] leading-5 text-white/40">Converse normalmente ou atribua uma tarefa. O OMNINJA usa pesquisa, navegador, arquivos e sandbox quando precisar.</p>
+        <p className="mx-auto mt-2 max-w-lg text-center text-[13px] leading-5 text-white/40">
+          Converse normalmente ou atribua uma tarefa. O OMNINJA usa pesquisa, navegador, arquivos e sandbox quando precisar.
+        </p>
 
         <div className="mt-7"><ChatInput /></div>
 
@@ -344,7 +358,17 @@ function HomeComposer() {
   );
 }
 
-function Sidebar({ conversations, historyLoading, onNewTask, onConversation, openAIHealthy, user, isGuest, onLogin, onLogout }: {
+function Sidebar({
+  conversations,
+  historyLoading,
+  onNewTask,
+  onConversation,
+  openAIHealthy,
+  user,
+  isGuest,
+  onLogin,
+  onLogout,
+}: {
   conversations: ConversationSummary[];
   historyLoading: boolean;
   onNewTask: () => void;
@@ -381,7 +405,8 @@ function Sidebar({ conversations, historyLoading, onNewTask, onConversation, ope
             key={label}
             className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left text-[12px] transition ${index === 0 ? 'bg-white/[0.055] text-white/85' : 'text-white/48 hover:bg-white/[0.04] hover:text-white/78'}`}
           >
-            <Icon className={`h-4 w-4 ${index === 0 ? 'text-cyan-300' : ''}`} />{label}
+            <Icon className={`h-4 w-4 ${index === 0 ? 'text-cyan-300' : ''}`} />
+            {label}
           </button>
         ))}
       </div>
@@ -397,26 +422,38 @@ function Sidebar({ conversations, historyLoading, onNewTask, onConversation, ope
       <div className="mt-5 flex items-center px-3 text-[10px] font-medium text-white/28"><span>Recentes</span></div>
       <div className="omni-scroll mt-1 min-h-0 flex-1 overflow-y-auto">
         {historyLoading ? (
-          <div className="space-y-1 px-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 rounded-lg omni-shimmer" />)}</div>
-        ) : conversations.length ? conversations.slice(0, 12).map((conversation) => (
-          <button
-            key={conversation.id}
-            onClick={() => onConversation(conversation.id)}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-white/42 transition hover:bg-white/[0.045] hover:text-white/75"
-          >
-            <MessageSquare className="h-3.5 w-3.5 shrink-0 text-white/25" />
-            <span className="truncate">{conversation.title}</span>
-          </button>
-        )) : <div className="px-3 py-4 text-[10px] text-white/20">Nenhuma tarefa ainda.</div>}
+          <div className="space-y-1 px-2">
+            {Array.from({ length: 5 }).map((_, index) => <div key={index} className="h-8 rounded-lg omni-shimmer" />)}
+          </div>
+        ) : conversations.length ? (
+          conversations.slice(0, 12).map((conversation) => (
+            <button
+              key={conversation.id}
+              onClick={() => onConversation(conversation.id)}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-white/42 transition hover:bg-white/[0.045] hover:text-white/75"
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-white/25" />
+              <span className="truncate">{conversation.title}</span>
+            </button>
+          ))
+        ) : (
+          <div className="px-3 py-4 text-[10px] text-white/20">Nenhuma tarefa ainda.</div>
+        )}
       </div>
 
       <div className="pt-2">
-        <button className="flex h-8 w-full items-center gap-3 rounded-lg px-3 text-[11px] text-white/42 hover:bg-white/[0.04]"><Settings className="h-3.5 w-3.5" />Configurações</button>
+        <button className="flex h-8 w-full items-center gap-3 rounded-lg px-3 text-[11px] text-white/42 hover:bg-white/[0.04]">
+          <Settings className="h-3.5 w-3.5" /> Configurações
+        </button>
         <div className="mt-1 flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/[0.035]">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-300 text-[11px] font-semibold text-[#0c2632]">{user?.name?.slice(0, 1)?.toUpperCase() || 'G'}</span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-300 text-[11px] font-semibold text-[#0c2632]">
+            {user?.name?.slice(0, 1)?.toUpperCase() || 'G'}
+          </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[11px] text-white/70">{user?.name || 'Workspace privado'}</div>
-            <div className="truncate text-[9px] text-white/28">{openAIHealthy === true ? 'OMNINJA conectado' : openAIHealthy === false ? 'OMNINJA indisponível' : 'Verificando…'}</div>
+            <div className="truncate text-[9px] text-white/28">
+              {openAIHealthy === true ? 'OMNINJA conectado' : openAIHealthy === false ? 'OMNINJA indisponível' : 'Verificando…'}
+            </div>
           </div>
           <button onClick={isGuest ? onLogin : onLogout} className="p-1.5 text-white/30 hover:text-white/70" aria-label={isGuest ? 'Entrar' : 'Sair'}>
             {isGuest ? <LogIn className="h-3.5 w-3.5" /> : <LogOut className="h-3.5 w-3.5" />}
