@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Check, Copy, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Copy, FileText, Image as ImageIcon, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { OmniNinjaLogo } from './brand';
 import { useOmni, type ChatMessage } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -16,7 +17,7 @@ export function MessageList() {
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       const element = scrollRef.current;
-      if (element) element.scrollTop = element.scrollHeight;
+      if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
     });
     return () => cancelAnimationFrame(id);
   }, [messages]);
@@ -24,8 +25,8 @@ export function MessageList() {
   if (messages.length === 0) return <EmptyChat />;
 
   return (
-    <div ref={scrollRef} className="omni-scroll h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-7 px-4 py-8 sm:py-10">
+    <div ref={scrollRef} className="omni-scroll h-full overflow-y-auto scroll-smooth">
+      <div className="mx-auto w-full max-w-3xl space-y-7 px-3 py-8 sm:px-4 sm:py-10">
         {messages.map((message) => (
           <MessageRow key={message.id} message={message} />
         ))}
@@ -44,16 +45,53 @@ function MessageRow({ message }: { message: ChatMessage }) {
 
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end animate-fade-up">
-        <div className="max-w-[88%] whitespace-pre-wrap rounded-3xl rounded-br-lg bg-accent px-4 py-2.5 text-[15px] leading-6 sm:max-w-[78%]">
-          {message.content}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="flex justify-end"
+      >
+        <div className="max-w-[92%] sm:max-w-[78%]">
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
+              {message.attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex max-w-56 items-center gap-2 rounded-2xl border border-border/70 bg-card px-3 py-2 text-left shadow-sm"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent">
+                    {attachment.mimeType.startsWith('image/') ? (
+                      <ImageIcon className="h-4 w-4" />
+                    ) : (
+                      <FileText className="h-4 w-4" />
+                    )}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium">{attachment.name}</span>
+                    <span className="block text-[10px] text-muted-foreground">
+                      {formatBytes(attachment.size)}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="whitespace-pre-wrap rounded-3xl rounded-br-lg bg-accent px-4 py-2.5 text-[15px] leading-6">
+            {message.content}
+          </div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
   return (
-    <div className="group flex gap-3 animate-fade-up">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22 }}
+      className="group flex gap-3"
+    >
       <div className="mt-0.5 shrink-0">
         <OmniNinjaLogo size={26} />
       </div>
@@ -66,8 +104,14 @@ function MessageRow({ message }: { message: ChatMessage }) {
 
         {!message.streaming && message.content && <MessageActions content={message.content} />}
       </div>
-    </div>
+    </motion.div>
   );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function MessageActions({ content }: { content: string }) {
@@ -81,7 +125,7 @@ function MessageActions({ content }: { content: string }) {
   };
 
   return (
-    <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+    <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
       <button
         onClick={() => void copy()}
         className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -174,9 +218,9 @@ function ResponseProgress({ thinkingEnabled }: { thinkingEnabled: boolean }) {
     <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
       <span>{thinkingEnabled ? 'Pensando' : 'Gerando resposta'}</span>
       <span className="flex gap-1">
-        <span className="omni-dot h-1.5 w-1.5 rounded-full bg-brand" style={{ animationDelay: '0ms' }} />
-        <span className="omni-dot h-1.5 w-1.5 rounded-full bg-brand" style={{ animationDelay: '150ms' }} />
-        <span className="omni-dot h-1.5 w-1.5 rounded-full bg-brand" style={{ animationDelay: '300ms' }} />
+        <span className="omni-dot h-1.5 w-1.5 rounded-full bg-foreground/70" style={{ animationDelay: '0ms' }} />
+        <span className="omni-dot h-1.5 w-1.5 rounded-full bg-foreground/70" style={{ animationDelay: '150ms' }} />
+        <span className="omni-dot h-1.5 w-1.5 rounded-full bg-foreground/70" style={{ animationDelay: '300ms' }} />
       </span>
     </div>
   );
@@ -197,7 +241,7 @@ function EmptyChat() {
         Como posso ajudar?
       </h1>
       <p className="mt-2 max-w-md text-center text-sm leading-6 text-muted-foreground">
-        Converse normalmente. Quando necessário, o OmniNinja usa ferramentas e recursos por trás da conversa.
+        Converse, envie imagens ou arquivos. O OMNINJA usa recursos internos quando necessário.
       </p>
 
       <div className="mt-7 grid w-full gap-2 sm:grid-cols-2">
@@ -205,7 +249,7 @@ function EmptyChat() {
           <button
             key={prompt}
             onClick={() => window.dispatchEvent(new CustomEvent('omninja:prompt', { detail: prompt }))}
-            className="rounded-2xl border border-border bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-brand/40 hover:bg-accent/60 hover:text-foreground"
+            className="rounded-2xl border border-border bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:bg-accent/70 hover:text-foreground"
           >
             {prompt}
           </button>
