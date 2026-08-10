@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Check, Copy, FileText, Image as ImageIcon, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Copy, FileText, Image as ImageIcon, LoaderCircle, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { OmniNinjaLogo } from './brand';
-import { useOmni, type ChatMessage } from '@/lib/store';
+import { useOmni, type ChatMessage, type MessageMedia } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 export function MessageList() {
@@ -80,9 +80,35 @@ function MessageRow({ message }: { message: ChatMessage }) {
         ) : (
           <MarkdownContent content={message.content} streaming={message.streaming} />
         )}
+        {message.media && message.media.length > 0 && <MediaResults media={message.media} />}
         {!message.streaming && message.content && <MessageActions content={message.content} />}
       </div>
     </motion.div>
+  );
+}
+
+function MediaResults({ media }: { media: MessageMedia[] }) {
+  return (
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {media.map((item) => (
+        <div key={item.id} className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#202020]">
+          {item.kind === 'image' && item.url ? (
+            <img src={item.url} alt={item.name || 'Imagem gerada pelo OMNINJA'} className="max-h-[560px] w-full object-contain" />
+          ) : item.kind === 'video' && item.url ? (
+            <video src={item.url} controls playsInline preload="metadata" className="max-h-[560px] w-full bg-black object-contain" />
+          ) : (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-3 p-5 text-center text-sm text-white/45">
+              <LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" />
+              <span>{item.kind === 'video' ? 'Processando vídeo…' : 'Preparando mídia…'}</span>
+              {typeof item.progress === 'number' && <span className="text-xs text-white/25">{Math.round(item.progress)}%</span>}
+            </div>
+          )}
+          <div className="border-t border-white/[0.055] px-3 py-2 text-[10px] text-white/35">
+            {item.name || (item.kind === 'image' ? 'Imagem gerada' : item.kind === 'video' ? 'Vídeo gerado' : 'Arquivo gerado')}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -95,6 +121,8 @@ function formatBytes(bytes: number) {
 function MessageActions({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const [speaking, setSpeaking] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const copy = async () => {
     await navigator.clipboard.writeText(content);
@@ -102,11 +130,50 @@ function MessageActions({ content }: { content: string }) {
     window.setTimeout(() => setCopied(false), 1400);
   };
 
+  const speak = async () => {
+    if (speaking) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setSpeaking(false);
+      return;
+    }
+
+    setSpeaking(true);
+    try {
+      const response = await fetch('/api/openai/speech', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ input: content.slice(0, 4096) }),
+      });
+      if (!response.ok) throw new Error('Falha ao gerar áudio');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+        setSpeaking(false);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+        setSpeaking(false);
+      };
+      await audio.play();
+    } catch {
+      setSpeaking(false);
+    }
+  };
+
   return (
     <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
       <button onClick={() => void copy()} className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] text-white/35 transition hover:bg-white/[0.05] hover:text-white/70" title="Copiar">
         {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
         {copied ? 'Copiado' : 'Copiar'}
+      </button>
+      <button onClick={() => void speak()} className={cn('flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-white/[0.05]', speaking ? 'text-cyan-300' : 'text-white/30 hover:text-white/70')} title={speaking ? 'Parar áudio' : 'Ouvir resposta'}>
+        <Volume2 className="h-3.5 w-3.5" />
       </button>
       <button
         onClick={() => setFeedback(feedback === 'up' ? null : 'up')}
