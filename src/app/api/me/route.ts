@@ -22,11 +22,13 @@ export async function GET() {
       bonusCredits: balance.bonusCredits,
       role: user.role,
     },
-    // OpenAI is currently the real central model backend.
     providers: openAIReady ? ['chatgpt'] : [],
-    // Kept for compatibility with the current workspace banner. No simulated
-    // responses or simulated agent actions are executed when this is true.
-    demoMode: !openAIReady,
+
+    // The old UI calls this field demoMode. We deliberately keep it false:
+    // production never runs a simulated AI fallback. Capability failures are
+    // reported explicitly by /api/chat and /api/agent/run.
+    demoMode: false,
+
     capabilities: {
       chat: openAIReady,
       agent: openAIReady,
