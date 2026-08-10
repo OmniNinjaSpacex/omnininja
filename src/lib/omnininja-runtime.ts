@@ -392,7 +392,7 @@ export async function runOmniNinjaRuntime(options: OmniNinjaRuntimeOptions): Pro
               ts: Date.now(),
             });
           } else if (call.name === 'file_write') {
-            const result = fileWrite(taskId, String(args.path || ''), String(args.content || ''));
+            const result = await fileWrite(taskId, String(args.path || ''), String(args.content || ''));
             observation = `Arquivo salvo: ${result.path} (${result.bytes} bytes)`;
             onEvent({
               type: 'FILE_CHANGED',
@@ -402,7 +402,7 @@ export async function runOmniNinjaRuntime(options: OmniNinjaRuntimeOptions): Pro
               ts: Date.now(),
             });
           } else if (call.name === 'file_read') {
-            observation = truncate(fileRead(taskId, String(args.path || '')), 9000);
+            observation = truncate(await fileRead(taskId, String(args.path || '')), 9000);
           } else if (call.name === 'file_list') {
             observation = (await listFiles(taskId)).join('\n');
           } else {
