@@ -1,0 +1,42 @@
+name: Deploy OmniNinja to Netlify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required Netlify secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}" || (echo "NETLIFY_AUTH_TOKEN is missing" >&2; exit 1)
+          test -n "${NETLIFY_SITE_ID:-}" || (echo "NETLIFY_SITE_ID is missing" >&2; exit 1)
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build with Netlify
+        run: npx netlify-cli@latest build
+
+      - name: Deploy production
+        run: npx netlify-cli@latest deploy --prod
