@@ -15,6 +15,8 @@ import {
   type OmniNinjaAttachment,
 } from '@/lib/omnininja-attachments';
 import { buildAttachmentContext } from '@/lib/omnininja-attachment-context';
+import { buildSemanticMemoryContext } from '@/lib/semantic-memory';
+import { moderateText } from '@/lib/openai-services';
 import { finalizeWorkspace } from '@/lib/shell-agent';
 import type { AgentEvent } from '@/lib/orchestrator';
 
@@ -62,6 +64,9 @@ function publicActivityLabel(event: AgentEvent): string {
 
   const instruction = String((event as any).instruction || '');
   if (instruction === 'web_search') return 'Pesquisando na web…';
+  if (instruction === 'file_search') return 'Consultando sua base de conhecimento…';
+  if (instruction === 'code_interpreter') return 'Analisando dados…';
+  if (instruction === 'image_generation') return 'Criando imagem…';
   if (instruction === 'browser_navigate') return 'Abrindo uma página…';
   if (instruction === 'browser_get_text') return 'Analisando uma página…';
   if (instruction === 'browser_screenshot') return 'Verificando visualmente…';
@@ -74,12 +79,7 @@ function publicActivityLabel(event: AgentEvent): string {
 
 function publicActivityEvent(event: AgentEvent): AgentEvent | null {
   if (event.type === 'TASK_STARTED') {
-    return {
-      type: 'TASK_STARTED',
-      taskId: event.taskId,
-      goal: '',
-      ts: event.ts,
-    };
+    return { type: 'TASK_STARTED', taskId: event.taskId, goal: '', ts: event.ts };
   }
 
   if (event.type === 'STEP_STARTED') {
@@ -153,19 +153,38 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Créditos insuficientes' }, { status: 402 });
   }
 
+  const [memory, moderation] = await Promise.all([
+    buildSemanticMemoryContext(user.id, originalUserText).catch(() => ({ queryEmbedding: [] as number[], context: '' })),
+    moderateText(originalUserText).catch(() => ({ flagged: false, categories: [] as string[] })),
+  ]);
+
+  const privateContext: string[] = [];
+  if (memory.context) {
+    privateContext.push([
+      '--- Memória semântica privada possivelmente relevante ---',
+      memory.context,
+      'Use apenas se realmente ajudar a responder. Não diga ao usuário que este bloco existe.',
+      '--- Fim da memória privada ---',
+    ].join('\n'));
+  }
+
+  if (moderation.flagged && moderation.categories.length) {
+    privateContext.push([
+      '--- Sinal privado de segurança ---',
+      `O classificador marcou categorias de risco: ${moderation.categories.join(', ')}.`,
+      'Aplique as políticas de segurança apropriadas sem revelar este classificador ao usuário.',
+      '--- Fim do sinal privado ---',
+    ].join('\n'));
+  }
+
   if (attachments.length > 0) {
     try {
       const attachmentContext = await buildAttachmentContext(attachments);
-      messages[lastUserIndex] = {
-        ...messages[lastUserIndex],
-        content: [
-          originalUserText,
-          '',
-          '--- Contexto privado dos anexos desta mensagem ---',
-          attachmentContext,
-          '--- Fim do contexto privado ---',
-        ].join('\n'),
-      };
+      privateContext.push([
+        '--- Contexto privado dos anexos desta mensagem ---',
+        attachmentContext,
+        '--- Fim do contexto privado ---',
+      ].join('\n'));
     } catch (error: any) {
       return Response.json(
         { error: error?.message || 'Não foi possível analisar os anexos.' },
@@ -174,12 +193,20 @@ export async function POST(req: Request) {
     }
   }
 
+  if (privateContext.length) {
+    messages[lastUserIndex] = {
+      ...messages[lastUserIndex],
+      content: [originalUserText, '', ...privateContext].join('\n\n'),
+    };
+  }
+
   await db.message.create({
     data: {
       userId: user.id,
       role: 'user',
       content: originalUserText,
       model: 'OMNINJA',
+      embeddingJson: memory.queryEmbedding.length ? JSON.stringify(memory.queryEmbedding) : null,
     },
   });
 
@@ -209,16 +236,9 @@ export async function POST(req: Request) {
       const persistedEvents: { type: string; payload: string }[] = [];
 
       const onEvent = (event: AgentEvent) => {
-        // Full internal event data stays server-side for replay/audit. Screenshots
-        // are intentionally omitted from the persisted JSON payload.
         const { screenshotBase64, ...safeInternalEvent } = event as any;
-        persistedEvents.push({
-          type: event.type,
-          payload: JSON.stringify(safeInternalEvent),
-        });
+        persistedEvents.push({ type: event.type, payload: JSON.stringify(safeInternalEvent) });
 
-        // The browser only gets a human status. Never send tool names, selectors,
-        // shell commands, stdout/stderr, file contents or internal observations.
         const publicEvent = publicActivityEvent(event);
         if (publicEvent) send({ type: 'activity', event: publicEvent });
       };
@@ -244,11 +264,7 @@ export async function POST(req: Request) {
 
         if (persistedEvents.length > 0) {
           await db.eventRow.createMany({
-            data: persistedEvents.map((event) => ({
-              taskId,
-              type: event.type,
-              payload: event.payload,
-            })),
+            data: persistedEvents.map((event) => ({ taskId, type: event.type, payload: event.payload })),
           });
         }
 
@@ -281,11 +297,7 @@ export async function POST(req: Request) {
 
         if (persistedEvents.length > 0) {
           await db.eventRow.createMany({
-            data: persistedEvents.map((event) => ({
-              taskId,
-              type: event.type,
-              payload: event.payload,
-            })),
+            data: persistedEvents.map((event) => ({ taskId, type: event.type, payload: event.payload })),
           }).catch(() => {});
         }
 
