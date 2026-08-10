@@ -24,6 +24,7 @@ import {
   ailabFileDelete,
   cleanupAilabContainer,
 } from './ailab-sandbox';
+import { finalizeAilabTask } from './ailab-lifecycle';
 
 export type SandboxProvider = 'local' | 'ailab' | 'disabled';
 
@@ -122,6 +123,7 @@ export async function fileDelete(taskId: string, path: string): Promise<boolean>
   }
 }
 
+/** Explicit destructive cleanup, used only when callers intend to delete data. */
 export async function cleanupWorkspace(taskId: string): Promise<void> {
   const provider = getSandboxProvider();
   if (provider === 'ailab') {
@@ -129,6 +131,17 @@ export async function cleanupWorkspace(taskId: string): Promise<void> {
     return;
   }
   if (provider === 'local') cleanupSandbox(taskId);
+}
+
+/**
+ * End-of-task lifecycle handling. For AI Lab the default policy is `stop`, so
+ * compute is released while task files remain available on the execution host.
+ */
+export async function finalizeWorkspace(taskId: string): Promise<void> {
+  const provider = getSandboxProvider();
+  if (provider === 'ailab') {
+    await finalizeAilabTask(taskId);
+  }
 }
 
 export async function listFiles(taskId: string): Promise<string[]> {
