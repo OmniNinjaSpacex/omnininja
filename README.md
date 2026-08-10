@@ -1,29 +1,26 @@
-# Nova Agent Runner
+# OmniNinja AI
 
-Serviço que roda na sua VM Ubuntu (AWS) e executa as tarefas do agente de verdade:
-shell, arquivos, browser (Playwright), busca web e exposição de portas.
+OmniNinja é uma plataforma de IA conversacional com um único modelo público (`OMNINJA`), níveis de esforço, pensamento opcional, anexos, histórico, ferramentas internas e execução de tarefas.
 
-## Instalação (Ubuntu 22.04+)
+## Deploy rápido no Render
 
-```bash
-git clone https://github.com/Vxvjsiwieh82/nova-agent-runner.git
-cd nova-agent-runner
-sudo bash install.sh
-```
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/OmniNinjaSpacex/omnininja)
 
-O script instala Node 22 + Chromium/Playwright, cria o usuário `nova`,
-sobe o serviço systemd `nova-runner` na porta **8787** e imprime no final:
+O botão acima usa o `render.yaml` deste repositório para criar um Web Service público no Render. Depois de aprovado no painel, o Render gera o endereço `*.onrender.com` do serviço.
 
-- `RUNNER_URL`
-- `RUNNER_TOKEN`
-- `RUNNER_CALLBACK_TOKEN`
+### Variáveis obrigatórias
 
-Libere a porta 8787 no Security Group da AWS e envie esses 3 valores para o app.
+Configure os valores no painel do Render. Nunca coloque chaves reais no GitHub.
 
-## Comandos úteis
+- `DATABASE_URL` — PostgreSQL de produção.
+- `OPENAI_API_KEY` — chave usada internamente pelo OMNINJA.
 
-```bash
-sudo systemctl status nova-runner
-sudo journalctl -u nova-runner -f
-sudo systemctl restart nova-runner
-```
+O Blueprint gera `NEXTAUTH_SECRET` automaticamente e já configura `OMNINJA_MODEL`, `OPENAI_BASE_URL`, `HOSTNAME=0.0.0.0` e o health check `/api/health`.
+
+## Estado do sandbox
+
+O shell local continua fail-closed em produção: se não houver isolamento seguro, comandos arbitrários não são executados no host do site. A integração remota com AI Lab/LXD está sendo preparada como provider separado.
+
+## CI
+
+O GitHub Actions valida PostgreSQL com Prisma e executa o build completo do Next.js antes de considerar uma alteração pronta.
