@@ -154,6 +154,7 @@ async function streamOmniNinjaResponse(
   let buffer = '';
   let sawDone = false;
   let sawFinal = false;
+  let streamedText = '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -180,8 +181,12 @@ async function streamOmniNinjaResponse(
         onStart(data.taskId);
       } else if (data.type === 'activity' && data.event) {
         onActivity(data.event as AgentEvent);
+      } else if (data.type === 'delta' && typeof data.delta === 'string') {
+        streamedText += data.delta;
+        onFinal(streamedText);
       } else if (data.type === 'final' && typeof data.text === 'string') {
         sawFinal = true;
+        streamedText = data.text;
         onFinal(data.text);
       } else if (data.type === 'error') {
         throw new Error(data.error || 'OMNINJA execution failed');
