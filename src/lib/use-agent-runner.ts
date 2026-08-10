@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type ReasoningEffort,
 } from '@/lib/store';
+import type { OmniNinjaAttachment } from '@/lib/omnininja-attachments';
 import type { AgentEvent } from '@/lib/orchestrator';
 import { toast } from 'sonner';
 
@@ -18,11 +19,6 @@ function errorMessage(error: unknown): string {
   return String(error || 'Erro desconhecido');
 }
 
-/**
- * One conversation runner for the whole product.
- * Every request goes through OMNINJA. The runtime itself decides whether tools
- * are needed. There is no user-visible Chat/Agent split.
- */
 export function useAgentRunner() {
   const abortRef = useRef<AbortController | null>(null);
 
@@ -37,6 +33,7 @@ export function useAgentRunner() {
     text: string,
     effort: ReasoningEffort,
     thinkingEnabled: boolean,
+    attachments: OmniNinjaAttachment[] = [],
   ) => {
     abortRef.current?.abort();
     const abortController = new AbortController();
@@ -47,6 +44,7 @@ export function useAgentRunner() {
       id: uid(),
       role: 'user',
       content: text,
+      attachments: attachments.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size })),
       createdAt: Date.now(),
     };
     store.pushMessage(userMessage);
@@ -88,12 +86,11 @@ export function useAgentRunner() {
         history,
         effort,
         thinkingEnabled,
+        attachments,
         (event) => useOmni.getState().appendEvent(event),
         (serverTaskId) => {
           const current = useOmni.getState().currentTask;
-          if (current) {
-            useOmni.getState().setCurrentTask({ ...current, id: serverTaskId });
-          }
+          if (current) useOmni.getState().setCurrentTask({ ...current, id: serverTaskId });
         },
         (finalText) => {
           useOmni.getState().updateMessage(assistantMessage.id, {
@@ -134,6 +131,7 @@ async function streamOmniNinjaResponse(
   messages: { role: 'user' | 'assistant'; content: string }[],
   effort: ReasoningEffort,
   thinkingEnabled: boolean,
+  attachments: OmniNinjaAttachment[],
   onActivity: (event: AgentEvent) => void,
   onStart: (taskId: string) => void,
   onFinal: (text: string) => void,
@@ -142,7 +140,7 @@ async function streamOmniNinjaResponse(
   const response = await fetch('/api/omnininja/respond', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, effort, thinkingEnabled }),
+    body: JSON.stringify({ messages, effort, thinkingEnabled, attachments }),
     signal,
   });
 
@@ -193,10 +191,6 @@ async function streamOmniNinjaResponse(
     }
   }
 
-  if (!sawDone) {
-    throw new Error('A conexão terminou sem confirmação de sucesso.');
-  }
-  if (!sawFinal) {
-    throw new Error('O OMNINJA terminou sem uma resposta final.');
-  }
+  if (!sawDone) throw new Error('A conexão terminou sem confirmação de sucesso.');
+  if (!sawFinal) throw new Error('O OMNINJA terminou sem uma resposta final.');
 }
