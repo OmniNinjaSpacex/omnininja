@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
-import { useOmni, type ProviderId, type AgentMode, type ChatMessage } from '@/lib/store';
+import {
+  useOmni,
+  type ProviderId,
+  type AgentMode,
+  type ChatMessage,
+  type BrowserSessionState,
+} from '@/lib/store';
 import type { AgentEvent } from '@/lib/orchestrator';
 import { toast } from 'sonner';
 
@@ -16,19 +22,15 @@ function errorMessage(error: unknown): string {
 
 /**
  * Real OmniNinja client runner.
- *
  * - chat -> /api/chat (OpenAI streaming)
  * - agent / agent_max -> /api/agent/run (OpenAI tool loop + real tools)
  *
- * There is deliberately no canned/simulated fallback. If a real backend call
- * fails, the UI reports the failure instead of pretending the task succeeded.
+ * No canned/simulated fallback exists. Backend failures are shown as failures.
  */
 export function useAgentRunner() {
-  const stopRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const stop = useCallback(() => {
-    stopRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
     useOmni.getState().updateTaskStatus('cancelled');
@@ -36,7 +38,6 @@ export function useAgentRunner() {
   }, []);
 
   const run = useCallback(async (text: string, model: ProviderId, mode: AgentMode) => {
-    stopRef.current = false;
     abortRef.current?.abort();
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -106,18 +107,16 @@ export function useAgentRunner() {
       store.setLive(true);
       store.setReplayIndex(null);
 
-      const introMsg: ChatMessage = {
+      store.pushMessage({
         id: uid(),
         role: 'assistant',
-        content: '',
+        content: mode === 'agent_max'
+          ? '**Agent MAX** iniciado. Vou executar a tarefa com as ferramentas reais disponíveis e mostrar o progresso no Computador.'
+          : '**Agent** iniciado. Vou executar a tarefa com as ferramentas reais necessárias e mostrar o progresso no Computador.',
         model: String(model),
         streaming: false,
         createdAt: Date.now(),
-      };
-      introMsg.content = mode === 'agent_max'
-        ? '**Agent MAX** iniciado. Vou executar a tarefa com as ferramentas reais disponíveis e mostrar o progresso no Computador.'
-        : '**Agent** iniciado. Vou executar a tarefa com as ferramentas reais necessárias e mostrar o progresso no Computador.';
-      store.pushMessage(introMsg);
+      });
 
       let finalSummary = '';
 
@@ -154,6 +153,10 @@ export function useAgentRunner() {
             }
           },
           (screenshot) => useOmni.getState().setScreenshot(screenshot),
+          (session) => {
+            useOmni.getState().setBrowserSession(session);
+            useOmni.getState().setComputerTab('browser');
+          },
           abortController.signal,
         );
       } catch (error) {
@@ -167,15 +170,14 @@ export function useAgentRunner() {
 
       if (abortController.signal.aborted) return;
 
-      const summaryMsg: ChatMessage = {
+      useOmni.getState().pushMessage({
         id: uid(),
         role: 'assistant',
         content: finalSummary || 'A execução terminou sem um resumo confirmado.',
         model: String(model),
         streaming: false,
         createdAt: Date.now(),
-      };
-      useOmni.getState().pushMessage(summaryMsg);
+      });
     } finally {
       if (abortRef.current === abortController) abortRef.current = null;
     }
@@ -190,6 +192,7 @@ async function runRealAgent(
   model: string,
   onEvent: (event: AgentEvent) => void,
   onScreenshot: (base64: string) => void,
+  onBrowserSession: (session: BrowserSessionState) => void,
   signal: AbortSignal,
 ) {
   const res = await fetch('/api/agent/run', {
@@ -228,14 +231,26 @@ async function runRealAgent(
       try {
         obj = JSON.parse(payload);
       } catch {
-        // Only malformed/partial JSON is ignored. Server-declared errors below
-        // are never swallowed.
         continue;
       }
 
       if (obj.type === 'screenshot' && typeof obj.data === 'string') {
         pendingScreenshot = obj.data;
         onScreenshot(pendingScreenshot);
+        continue;
+      }
+
+      if (obj.type === 'browser_session' && typeof obj.liveURL === 'string') {
+        const expiresInMs = Number(obj.expiresInMs);
+        onBrowserSession({
+          liveURL: obj.liveURL,
+          browserSessionTicket:
+            typeof obj.browserSessionTicket === 'string' ? obj.browserSessionTicket : undefined,
+          expiresAt:
+            Number.isFinite(expiresInMs) && expiresInMs > 0
+              ? Date.now() + expiresInMs
+              : undefined,
+        });
         continue;
       }
 
