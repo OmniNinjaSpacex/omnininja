@@ -4,11 +4,14 @@ import { useCallback, useRef } from 'react';
 import {
   useOmni,
   type ChatMessage,
+  type MessageMedia,
   type ReasoningEffort,
 } from '@/lib/store';
 import type { OmniNinjaAttachment } from '@/lib/omnininja-attachments';
 import type { AgentEvent } from '@/lib/orchestrator';
 import { toast } from 'sonner';
+
+export type OmniRunMode = 'chat' | 'image' | 'video';
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -17,6 +20,16 @@ function uid() {
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return String(error || 'Erro desconhecido');
+}
+
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
 }
 
 export function useAgentRunner() {
@@ -34,6 +47,7 @@ export function useAgentRunner() {
     effort: ReasoningEffort,
     thinkingEnabled: boolean,
     attachments: OmniNinjaAttachment[] = [],
+    mode: OmniRunMode = 'chat',
   ) => {
     abortRef.current?.abort();
     const abortController = new AbortController();
@@ -60,7 +74,7 @@ export function useAgentRunner() {
     const assistantMessage: ChatMessage = {
       id: uid(),
       role: 'assistant',
-      content: '',
+      content: mode === 'image' ? 'Criando imagem…' : mode === 'video' ? 'Criando vídeo…' : '',
       model: 'OMNINJA',
       streaming: true,
       createdAt: Date.now(),
@@ -71,7 +85,7 @@ export function useAgentRunner() {
       id: uid(),
       goal: text,
       mode: 'chat',
-      model: 'chatgpt',
+      model: 'openai',
       status: 'running',
       steps: [],
       stepsDone: 0,
@@ -82,6 +96,91 @@ export function useAgentRunner() {
     store.setComputerOpen(false);
 
     try {
+      if (mode === 'image') {
+        const response = await fetch('/api/openai/image', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: text }),
+          signal: abortController.signal,
+        });
+        const data = await response.json().catch(() => ({} as any));
+        if (!response.ok || !data?.media?.url) {
+          throw new Error(data?.error || `Falha ao gerar imagem (HTTP ${response.status})`);
+        }
+        const media = data.media as MessageMedia;
+        useOmni.getState().updateMessage(assistantMessage.id, {
+          content: 'Imagem gerada.',
+          media: [media],
+          streaming: false,
+        });
+        useOmni.getState().updateTaskStatus('completed');
+        return;
+      }
+
+      if (mode === 'video') {
+        const create = await fetch('/api/openai/video', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: text, seconds: '8', size: '1280x720' }),
+          signal: abortController.signal,
+        });
+        const created = await create.json().catch(() => ({} as any));
+        if (!create.ok || !created?.id) {
+          throw new Error(created?.error || `Falha ao iniciar vídeo (HTTP ${create.status})`);
+        }
+
+        const videoId = String(created.id);
+        let status = String(created.status || 'queued');
+        let progress = Number(created.progress || 0);
+        useOmni.getState().updateMessage(assistantMessage.id, {
+          content: `Gerando vídeo… ${Math.max(0, Math.min(100, progress))}%`,
+        });
+
+        for (let attempt = 0; attempt < 60 && !['completed', 'failed'].includes(status); attempt += 1) {
+          await sleep(2000, abortController.signal);
+          const check = await fetch(`/api/openai/video?id=${encodeURIComponent(videoId)}`, {
+            cache: 'no-store',
+            signal: abortController.signal,
+          });
+          const data = await check.json().catch(() => ({} as any));
+          if (!check.ok) throw new Error(data?.error || 'Falha ao consultar vídeo.');
+          status = String(data.status || status);
+          progress = Number(data.progress || progress || 0);
+          useOmni.getState().updateMessage(assistantMessage.id, {
+            content: status === 'completed'
+              ? 'Vídeo gerado.'
+              : `Gerando vídeo… ${Math.max(0, Math.min(100, progress))}%`,
+          });
+        }
+
+        if (status === 'failed') throw new Error('A geração do vídeo falhou.');
+        if (status !== 'completed') {
+          useOmni.getState().updateMessage(assistantMessage.id, {
+            content: 'O vídeo continua sendo processado. Você pode tentar novamente em alguns instantes.',
+            media: [{ id: videoId, kind: 'video', url: '', status, progress }],
+            streaming: false,
+          });
+          useOmni.getState().updateTaskStatus('completed');
+          return;
+        }
+
+        useOmni.getState().updateMessage(assistantMessage.id, {
+          content: 'Vídeo gerado.',
+          media: [{
+            id: videoId,
+            kind: 'video',
+            name: 'Vídeo gerado pelo OMNINJA',
+            mimeType: 'video/mp4',
+            url: `/api/openai/video?id=${encodeURIComponent(videoId)}&content=1`,
+            status: 'completed',
+            progress: 100,
+          }],
+          streaming: false,
+        });
+        useOmni.getState().updateTaskStatus('completed');
+        return;
+      }
+
       await streamOmniNinjaResponse(
         history,
         effort,
