@@ -1,10 +1,11 @@
 // OmniNinja - Browser Agent
-// Suporta 2 modos:
+// Suporta 3 modos:
 //  1. BROWSERLESS (cloud) - quando BROWSERLESS_API_KEY esta definida.
-//     Conecta via connectOverCDP ao wss://production-sfo.browserless.io
-//     Mais rapido, escalavel, nao consome RAM do Ubuntu.
-//  2. LOCAL Chromium - fallback. Roda Chromium local via Playwright.
-//     Usado quando nao ha chave Browserless.
+//  2. BROWSERLESS TAKEOVER - usuario entra manualmente via liveURL e o agente
+//     reconecta na mesma sessao autenticada.
+//  3. LOCAL Chromium - fallback quando nao ha chave Browserless.
+
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 let _chromium: any = null;
 async function getChromium(): Promise<any> {
@@ -24,11 +25,135 @@ const USE_BROWSERLESS = BROWSERLESS_TOKEN.length > 10;
 let browserInstance: any = null;
 let launchPromise: Promise<any> | null = null;
 
+type BrowserSessionContext = {
+  browserWSEndpoint?: string;
+  browser?: any;
+};
+
+const browserSessionStorage = new AsyncLocalStorage<BrowserSessionContext>();
+
+export interface InteractiveBrowserSession {
+  liveURL: string;
+  browserWSEndpoint: string;
+  browserQLEndpoint?: string;
+  expiresInMs: number;
+}
+
 export function getBrowserMode(): 'browserless' | 'local' {
   return USE_BROWSERLESS ? 'browserless' : 'local';
 }
 
+function requireBrowserlessToken(): string {
+  if (!USE_BROWSERLESS) {
+    throw new Error('BROWSERLESS_API_KEY nao configurada no servidor');
+  }
+  return BROWSERLESS_TOKEN;
+}
+
+function validateReconnectEndpoint(endpoint: string): URL {
+  const url = new URL(endpoint);
+  const allowedHost = url.hostname === `${BROWSERLESS_REGION}.browserless.io` || url.hostname.endsWith('.browserless.io');
+  if (url.protocol !== 'wss:' || !allowedHost) {
+    throw new Error('Browserless reconnect endpoint invalido');
+  }
+  return url;
+}
+
+function browserlessReconnectURL(endpoint: string): string {
+  const token = requireBrowserlessToken();
+  const url = validateReconnectEndpoint(endpoint);
+  url.searchParams.set('token', token);
+  return url.toString();
+}
+
+export async function createInteractiveBrowserSession(
+  initialUrl = 'https://console.aws.amazon.com/',
+  requestedTimeoutMs = 10 * 60 * 1000,
+): Promise<InteractiveBrowserSession> {
+  const token = requireBrowserlessToken();
+
+  const parsed = new URL(initialUrl);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('initialUrl precisa ser http ou https');
+  }
+
+  // Evita sessoes esquecidas. O cliente pode criar uma nova quando precisar.
+  const timeoutMs = Math.max(60_000, Math.min(requestedTimeoutMs, 30 * 60 * 1000));
+  const endpoint = `https://${BROWSERLESS_REGION}.browserless.io/stealth/bql?token=${encodeURIComponent(token)}`;
+
+  const query = `
+    mutation StartInteractiveSession($url: String!, $timeout: Float!) {
+      goto(url: $url, waitUntil: domContentLoaded) { status }
+      liveURL(timeout: $timeout, interactable: true, resizable: true) { liveURL }
+      reconnect(timeout: $timeout) { browserQLEndpoint browserWSEndpoint }
+    }
+  `;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      variables: { url: parsed.toString(), timeout: timeoutMs },
+      operationName: 'StartInteractiveSession',
+    }),
+    cache: 'no-store',
+  });
+
+  const payload = await response.json().catch(() => ({} as any));
+  if (!response.ok || payload?.errors?.length) {
+    const detail = payload?.errors?.[0]?.message || `HTTP ${response.status}`;
+    throw new Error(`Browserless live session falhou: ${detail}`);
+  }
+
+  const liveURL = payload?.data?.liveURL?.liveURL;
+  const browserWSEndpoint = payload?.data?.reconnect?.browserWSEndpoint;
+  const browserQLEndpoint = payload?.data?.reconnect?.browserQLEndpoint;
+
+  if (!liveURL || !browserWSEndpoint) {
+    throw new Error('Browserless nao retornou liveURL/reconnect endpoint');
+  }
+
+  validateReconnectEndpoint(browserWSEndpoint);
+
+  return {
+    liveURL,
+    browserWSEndpoint,
+    browserQLEndpoint,
+    expiresInMs: timeoutMs,
+  };
+}
+
+/**
+ * Executa uma tarefa dentro de uma sessao Browserless especifica sem usar
+ * estado global entre usuarios. AsyncLocalStorage mantem a sessao vinculada
+ * apenas ao request atual.
+ */
+export async function runWithBrowserSession<T>(
+  browserWSEndpoint: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!browserWSEndpoint) return fn();
+  validateReconnectEndpoint(browserWSEndpoint);
+  return browserSessionStorage.run({ browserWSEndpoint }, fn);
+}
+
+async function connectToTakeoverSession(): Promise<any | null> {
+  const store = browserSessionStorage.getStore();
+  if (!store?.browserWSEndpoint) return null;
+
+  if (store.browser?.isConnected?.()) return store.browser;
+
+  const chromium = await getChromium();
+  const browser = await chromium.connectOverCDP(browserlessReconnectURL(store.browserWSEndpoint));
+  store.browser = browser;
+  return browser;
+}
+
 export async function getBrowser(): Promise<any> {
+  const takeoverBrowser = await connectToTakeoverSession();
+  if (takeoverBrowser) return takeoverBrowser;
+
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
   if (launchPromise) return launchPromise;
 
@@ -37,7 +162,7 @@ export async function getBrowser(): Promise<any> {
     let browser: any;
 
     if (USE_BROWSERLESS) {
-      const wsUrl = `wss://${BROWSERLESS_REGION}.browserless.io?token=${BROWSERLESS_TOKEN}`;
+      const wsUrl = `wss://${BROWSERLESS_REGION}.browserless.io?token=${encodeURIComponent(BROWSERLESS_TOKEN)}`;
       browser = await chromium.connectOverCDP(wsUrl);
     } else {
       const launchOpts: any = {
@@ -80,8 +205,13 @@ export async function createPage(): Promise<any> {
     await context.route('**/*.{woff,woff2,mp4,webm,ogg}', (r: any) => r.abort().catch(() => {}));
   }
 
-  const page = await context.newPage();
-  return page;
+  // Em takeover, reutiliza a pagina em que o usuario acabou de fazer login.
+  const existing = context.pages?.() || [];
+  if (browserSessionStorage.getStore()?.browserWSEndpoint && existing.length > 0) {
+    return existing[0];
+  }
+
+  return context.newPage();
 }
 
 export interface BrowserActionResult {
@@ -154,6 +284,13 @@ export const browserTools = {
 };
 
 export async function closeBrowser() {
+  const store = browserSessionStorage.getStore();
+  if (store?.browser) {
+    await store.browser.close().catch(() => {});
+    store.browser = undefined;
+    return;
+  }
+
   if (browserInstance) {
     await browserInstance.close().catch(() => {});
     browserInstance = null;
