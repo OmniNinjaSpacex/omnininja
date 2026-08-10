@@ -9,6 +9,12 @@ import {
   type OmniNinjaEffort,
   type RuntimeMessage,
 } from '@/lib/omnininja-runtime';
+import {
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  type OmniNinjaAttachment,
+} from '@/lib/omnininja-attachments';
+import { buildAttachmentContext } from '@/lib/omnininja-attachment-context';
 import type { AgentEvent } from '@/lib/orchestrator';
 
 export const runtime = 'nodejs';
@@ -24,6 +30,29 @@ function creditCost(effort: OmniNinjaEffort, thinkingEnabled: boolean): number {
   if (effort === 'high') return CREDIT_COSTS.chat_message * 4;
   if (effort === 'medium') return CREDIT_COSTS.chat_message * 2;
   return CREDIT_COSTS.chat_message;
+}
+
+function normalizeAttachments(value: unknown): OmniNinjaAttachment[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: OmniNinjaAttachment[] = [];
+  for (const item of value.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)) {
+    if (!item || typeof item !== 'object') continue;
+    const attachment = item as Record<string, unknown>;
+    const name = typeof attachment.name === 'string' ? attachment.name.slice(0, 180) : '';
+    const mimeType = typeof attachment.mimeType === 'string'
+      ? attachment.mimeType.slice(0, 120)
+      : 'application/octet-stream';
+    const size = Number(attachment.size);
+    const dataUrl = typeof attachment.dataUrl === 'string' ? attachment.dataUrl : '';
+    const id = typeof attachment.id === 'string' ? attachment.id.slice(0, 120) : crypto.randomUUID();
+
+    if (!name || !dataUrl.startsWith('data:')) continue;
+    if (!Number.isFinite(size) || size <= 0 || size > MAX_ATTACHMENT_BYTES) continue;
+
+    normalized.push({ id, name, mimeType, size, dataUrl });
+  }
+  return normalized;
 }
 
 export async function POST(req: Request) {
@@ -51,13 +80,15 @@ export async function POST(req: Request) {
       content: message.content.trim(),
     }));
 
-  const lastUser = [...messages].reverse().find((message) => message.role === 'user');
-  if (!lastUser) {
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf('user');
+  if (lastUserIndex < 0) {
     return Response.json({ error: 'messages required' }, { status: 400 });
   }
 
+  const originalUserText = messages[lastUserIndex].content;
   const effort = normalizeEffort(body.effort);
   const thinkingEnabled = body.thinkingEnabled !== false;
+  const attachments = normalizeAttachments(body.attachments);
   const cost = creditCost(effort, thinkingEnabled);
   const consume = await consumeCredits(user.id, cost, 'omnininja_response');
 
@@ -65,11 +96,32 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Créditos insuficientes' }, { status: 402 });
   }
 
+  if (attachments.length > 0) {
+    try {
+      const attachmentContext = await buildAttachmentContext(attachments);
+      messages[lastUserIndex] = {
+        ...messages[lastUserIndex],
+        content: [
+          originalUserText,
+          '',
+          '--- Contexto dos anexos desta mensagem ---',
+          attachmentContext,
+          '--- Fim do contexto dos anexos ---',
+        ].join('\n'),
+      };
+    } catch (error: any) {
+      return Response.json(
+        { error: error?.message || 'Não foi possível analisar os anexos.' },
+        { status: 422 },
+      );
+    }
+  }
+
   await db.message.create({
     data: {
       userId: user.id,
       role: 'user',
-      content: lastUser.content,
+      content: originalUserText,
       model: 'OMNINJA',
     },
   });
@@ -77,8 +129,8 @@ export async function POST(req: Request) {
   const task = await db.task.create({
     data: {
       userId: user.id,
-      title: lastUser.content.slice(0, 80),
-      goal: lastUser.content,
+      title: originalUserText.slice(0, 80),
+      goal: originalUserText,
       mode: 'omnininja',
       model: 'OMNINJA',
       status: 'running',
@@ -106,9 +158,11 @@ export async function POST(req: Request) {
           payload: JSON.stringify(safeEvent),
         });
 
-        // The client receives compact activity events only. Screenshots remain
-        // internal because the product is a chat-first experience.
-        if (event.type === 'STEP_STARTED' || event.type === 'STEP_COMPLETED' || event.type === 'TASK_STARTED') {
+        if (
+          event.type === 'STEP_STARTED' ||
+          event.type === 'STEP_COMPLETED' ||
+          event.type === 'TASK_STARTED'
+        ) {
           send({ type: 'activity', event: safeEvent });
         }
       };
@@ -120,6 +174,7 @@ export async function POST(req: Request) {
           model: 'OMNINJA',
           effort,
           thinkingEnabled,
+          attachments: attachments.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size })),
           credits: consume.remaining,
         });
 
