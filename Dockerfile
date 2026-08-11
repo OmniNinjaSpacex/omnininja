@@ -1,50 +1,37 @@
-FROM python:3.11-slim
-
-# System tools (igual ao ambiente do Manus AI)
-RUN apt-get update && apt-get install -y \
-    curl wget git nano vim \
-    build-essential gcc g++ \
-    nodejs npm \
-    chromium chromium-driver \
-    fonts-liberation libatk-bridge2.0-0 \
-    libgbm1 libgtk-3-0 libnss3 libxss1 \
-    libasound2 libdrm2 \
-    python3-pip python3-venv \
-    ffmpeg imagemagick \
-    jq zip unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Python packages (tudo que o Manus tem)
-COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-# Playwright (browser automation)
-RUN pip install playwright && playwright install chromium --with-deps
-
-# Data science
-RUN pip install --no-cache-dir \
-    numpy pandas matplotlib seaborn plotly \
-    scikit-learn scipy statsmodels \
-    pillow opencv-python-headless \
-    requests aiohttp \
-    openpyxl xlrd xlwt \
-    pdfplumber PyPDF2 \
-    python-docx python-pptx \
-    bs4 lxml selenium \
-    langchain openai anthropic \
-    faiss-cpu sentence-transformers
+FROM node:24-bookworm-slim AS dependencies
 
 WORKDIR /app
-COPY . /app
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Build frontend
-RUN npm install --prefix /app/frontend && \
-    npm run build --prefix /app/frontend
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-# Create workspace dir
-RUN mkdir -p /app/workspace
+FROM dependencies AS builder
 
-EXPOSE 8000
+COPY . .
+ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build
+ENV OPENAI_API_KEY=build-placeholder
 
-CMD ["python", "-m", "uvicorn", "backend.api.server:app", \
-     "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+RUN npm run db:generate
+RUN npm run build
+
+FROM node:24-bookworm-slim AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+RUN groupadd --system --gid 1001 omnininja \
+  && useradd --system --uid 1001 --gid omnininja omnininja
+
+COPY --from=builder --chown=omnininja:omnininja /app/.next/standalone ./
+
+USER omnininja
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
+CMD ["node", "server.js"]

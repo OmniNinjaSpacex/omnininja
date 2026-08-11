@@ -81,31 +81,31 @@ async function fileToAttachment(file: File): Promise<OmniNinjaAttachment> {
 
 function inferMediaMode(prompt: string): OmniRunMode {
   const normalized = prompt.toLowerCase();
-  const createVerb = /\b(crie|criar|gere|gerar|faça|fazer|produza|produzir|desenhe|desenhar)\b/i;
+  const createVerb = /\b(crie|criar|gere|gerar|faça|fazer|produza|produzir|desenhe|desenhar|create|generate|make|draw|crea|crear|genera|generar|haz|dibuja)\b/i;
   if (!createVerb.test(normalized)) return 'chat';
-  if (/\b(vídeo|video|clipe|animação|animacao)\b/i.test(normalized)) return 'video';
-  if (/\b(imagem|foto|ilustração|ilustracao|arte|pôster|poster)\b/i.test(normalized)) return 'image';
+  if (/\b(vídeo|video|clipe|clip|animação|animacao|animation)\b/i.test(normalized)) return 'video';
+  if (/\b(imagem|image|foto|photo|picture|ilustração|ilustracao|illustration|arte|art|pôster|poster)\b/i.test(normalized)) return 'image';
   return 'chat';
 }
 
 async function waitForIceGathering(pc: RTCPeerConnection) {
   if (pc.iceGatheringState === 'complete') return;
   await new Promise<void>((resolve) => {
-    const timeout = window.setTimeout(resolve, 4000);
-    const listener = () => {
-      if (pc.iceGatheringState === 'complete') {
-        window.clearTimeout(timeout);
-        pc.removeEventListener('icegatheringstatechange', listener);
-        resolve();
-      }
+    const finish = () => {
+      window.clearTimeout(timeout);
+      pc.removeEventListener('icegatheringstatechange', listener);
+      resolve();
     };
+    const listener = () => {
+      if (pc.iceGatheringState === 'complete') finish();
+    };
+    const timeout = window.setTimeout(finish, 4000);
     pc.addEventListener('icegatheringstatechange', listener);
   });
 }
 
 export function ChatInput() {
   const [text, setText] = useState('');
-  const [running, setRunning] = useState(false);
   const [attachments, setAttachments] = useState<OmniNinjaAttachment[]>([]);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [generationMode, setGenerationMode] = useState<OmniRunMode>('chat');
@@ -122,6 +122,7 @@ export function ChatInput() {
   const realtimePcRef = useRef<RTCPeerConnection | null>(null);
   const realtimeStreamRef = useRef<MediaStream | null>(null);
   const realtimeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const submittingRef = useRef(false);
 
   const currentTask = useOmni((state) => state.currentTask);
   const reasoningEffort = useOmni((state) => state.reasoningEffort);
@@ -133,10 +134,6 @@ export function ChatInput() {
   const taskRunning = Boolean(
     currentTask && ['running', 'planning', 'queued', 'awaiting_input'].includes(currentTask.status),
   );
-
-  useEffect(() => {
-    if (taskRunning) setRunning(true);
-  }, [taskRunning]);
 
   useEffect(() => {
     const textarea = taRef.current;
@@ -156,7 +153,10 @@ export function ChatInput() {
   }, []);
 
   useEffect(() => () => {
-    mediaRecorderRef.current?.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     realtimePcRef.current?.close();
     realtimeStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -188,7 +188,7 @@ export function ChatInput() {
 
   const submit = async () => {
     const prompt = text.trim();
-    if ((!prompt && attachments.length === 0) || running) return;
+    if ((!prompt && attachments.length === 0) || taskRunning || submittingRef.current) return;
 
     const effectivePrompt = prompt || 'Analise os anexos enviados e me explique o conteúdo mais importante.';
     const outgoingAttachments = attachments;
@@ -196,12 +196,12 @@ export function ChatInput() {
     setText('');
     setAttachments([]);
     setGenerationMode('chat');
-    setRunning(true);
+    submittingRef.current = true;
 
     try {
       await run(effectivePrompt, reasoningEffort, thinkingEnabled, outgoingAttachments, effectiveMode);
     } finally {
-      setRunning(false);
+      submittingRef.current = false;
       requestAnimationFrame(() => taRef.current?.focus());
     }
   };
@@ -215,7 +215,7 @@ export function ChatInput() {
 
   const stopRun = () => {
     stop();
-    setRunning(false);
+    submittingRef.current = false;
   };
 
   const toggleRecording = async () => {
@@ -300,6 +300,12 @@ export function ChatInput() {
       audio.autoplay = true;
       pc.ontrack = (event) => {
         audio.srcObject = event.streams[0] || new MediaStream([event.track]);
+        void audio.play().catch(() => {});
+      };
+      pc.onconnectionstatechange = () => {
+        if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+          stopRealtimeVoice();
+        }
       };
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       const offer = await pc.createOffer();
@@ -417,7 +423,7 @@ export function ChatInput() {
             </button>
 
             <div className="ml-auto">
-              {running ? (
+              {taskRunning ? (
                 <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition active:scale-95" onClick={stopRun} aria-label="Parar resposta">
                   <Square className="h-3.5 w-3.5 fill-current" />
                 </button>

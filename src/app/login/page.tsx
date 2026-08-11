@@ -14,7 +14,6 @@ export default function LoginPage() {
   const router = useRouter();
   const setView = useOmni((state) => state.setView);
   const setUser = useOmni((state) => state.setUser);
-  const setConfiguredProviders = useOmni((state) => state.setConfiguredProviders);
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [name, setName] = useState('');
@@ -71,7 +70,6 @@ export default function LoginPage() {
       }
 
       setUser(me.user);
-      setConfiguredProviders(Array.isArray(me.providers) ? me.providers : []);
       setView('workspace');
       router.push('/');
     } catch (authError: any) {
@@ -108,8 +106,8 @@ export default function LoginPage() {
               O acesso sem conta continua disponível com um usuário guest isolado.
             </p>
             <div className="mt-8 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-              O OmniNinja nunca precisa colocar sua chave da OpenAI ou do Browserless no navegador do usuário.
-              As credenciais da plataforma ficam no ambiente do servidor.
+              O OMNININJA nunca coloca credenciais de infraestrutura no navegador do usuário.
+              Elas permanecem protegidas no ambiente do servidor.
             </div>
           </div>
         </div>

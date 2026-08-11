@@ -8,10 +8,10 @@
 # Níveis de isolamento (do melhor ao mais simples):
 #   Nível 2: unshare + proot (namespace real do kernel)
 #   Nível 1: chroot com debootstrap (Ubuntu base isolado)
-#   Nível 0: diretório isolado (fallback — sempre funciona)
+#   Nível 0: diretório de desenvolvimento (bloqueado em produção)
 #
-# Este script tenta instalar Nível 2 e Nível 1. Se falhar, cai
-# automaticamente para Nível 0 (que só precisa de mkdir).
+# Este script tenta instalar Nível 2 e Nível 1. Em produção, o
+# OMNININJA mantém o comportamento fail-closed abaixo do Nível 2.
 #
 # Uso:  sudo bash scripts/setup-sandbox.sh
 # ============================================================
@@ -109,9 +109,9 @@ else
       echo "  ✅ Imagem base criada!"
 
       # Instala Node.js dentro do sandbox base
-      echo "  Instalando Node.js 20 no sandbox base..."
+      echo "  Instalando Node.js 24 no sandbox base..."
       chroot "$SANDBOX_IMAGE" /bin/bash -c "
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null
+        curl -fsSL https://deb.nodesource.com/setup_24.x | bash - 2>/dev/null
         apt-get install -y --no-install-recommends nodejs 2>/dev/null
         node --version
       " 2>&1 | tail -3 || echo "  ⚠️ Node no sandbox falhou (Python/bash continuam disponíveis)"
@@ -143,12 +143,11 @@ if [ "$INSTALLED_LEVEL2" = "true" ]; then
   echo "  ✅ Nível 2 (namespace+proot): DISPONÍVEL — isolamento máximo"
   echo "     Cada task roda em namespace Linux isolado (PID/mount/net/user)"
 elif [ "$INSTALLED_LEVEL1" = "true" ]; then
-  echo "  ✅ Nível 1 (chroot): DISPONÍVEL — isolamento de filesystem"
-  echo "     Cada task roda em chroot Ubuntu isolado"
+  echo "  ⚠️ Nível 1 (chroot): apenas desenvolvimento"
+  echo "     Execução pública permanece bloqueada em produção"
 else
-  echo "  ✅ Nível 0 (diretório): isolamento por diretório de trabalho"
-  echo "     Cada task tem seu workspace, sem chroot/namespace"
-  echo "     Funcional, mas sem isolamento forte de filesystem"
+  echo "  ⚠️ Nível 0 (diretório): apenas desenvolvimento"
+  echo "     Execução pública permanece bloqueada em produção"
 fi
 
 echo ""
@@ -156,5 +155,5 @@ echo "  Imagem base:  $SANDBOX_IMAGE"
 echo "  Workspaces:   $WORKSPACE_ROOT"
 echo "  Sandboxes:    $SANDBOX_BASE"
 echo ""
-echo "  O OmniNinja detecta automaticamente o melhor nível disponível."
+echo "  O OMNININJA detecta o nível e bloqueia produção abaixo do Nível 2."
 echo "============================================================"

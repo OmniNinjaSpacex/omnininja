@@ -45,11 +45,26 @@ export function getSandboxProvider(): SandboxProvider {
   return 'local';
 }
 
+function requireSafeLocalSandbox(): void {
+  if (process.env.NODE_ENV === 'production' && detectSandboxLevel() < 2) {
+    throw new Error('Ambiente de execução seguro indisponível; operação bloqueada.');
+  }
+}
+
 export async function shellExec(
   taskId: string,
   cmd: string,
   timeoutMs = 60000,
 ): Promise<ShellResult> {
+  if (Buffer.byteLength(cmd, 'utf8') > 100_000) {
+    return {
+      cmd: '',
+      stdout: '',
+      stderr: 'Comando excede o limite permitido.',
+      exitCode: 126,
+      sandboxProvider: 'disabled',
+    };
+  }
   const provider = getSandboxProvider();
 
   if (provider === 'disabled') {
@@ -90,16 +105,21 @@ export async function fileWrite(
   path: string,
   content: string,
 ): Promise<{ path: string; bytes: number }> {
+  if (Buffer.byteLength(content, 'utf8') > 2 * 1024 * 1024) {
+    throw new Error('Arquivo excede o limite de 2 MB por operação.');
+  }
   const provider = getSandboxProvider();
   if (provider === 'ailab') return ailabFileWrite(taskId, path, content);
   if (provider === 'disabled') throw new Error('Filesystem sandbox desativado');
+  requireSafeLocalSandbox();
   return sandboxFileWrite(taskId, path, content);
 }
 
 export async function fileRead(taskId: string, path: string): Promise<string> {
   const provider = getSandboxProvider();
   if (provider === 'ailab') return ailabFileRead(taskId, path);
-  if (provider === 'disabled') return 'Error: filesystem sandbox desativado';
+  if (provider === 'disabled') throw new Error('Filesystem sandbox desativado');
+  requireSafeLocalSandbox();
   return sandboxFileRead(taskId, path);
 }
 
@@ -107,6 +127,7 @@ export async function fileDelete(taskId: string, path: string): Promise<boolean>
   const provider = getSandboxProvider();
   if (provider === 'ailab') return ailabFileDelete(taskId, path);
   if (provider === 'disabled') return false;
+  requireSafeLocalSandbox();
 
   let safePath: string;
   try {
@@ -147,7 +168,8 @@ export async function finalizeWorkspace(taskId: string): Promise<void> {
 export async function listFiles(taskId: string): Promise<string[]> {
   const provider = getSandboxProvider();
   if (provider === 'ailab') return ailabListFiles(taskId);
-  if (provider === 'disabled') return [];
+  if (provider === 'disabled') throw new Error('Filesystem sandbox desativado');
+  requireSafeLocalSandbox();
   return sandboxListFiles(taskId);
 }
 

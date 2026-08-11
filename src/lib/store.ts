@@ -5,9 +5,6 @@ import type { AgentEvent, PlanStep, Artifact } from '@/lib/orchestrator';
 export type { AgentEvent } from '@/lib/orchestrator';
 
 export type View = 'landing' | 'workspace';
-export type AgentMode = 'chat' | 'agent';
-export type ComputerTab = 'code' | 'preview' | 'browser' | 'terminal';
-export type ProviderId = 'openai';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 export interface MessageAttachment {
@@ -38,17 +35,9 @@ export interface ChatMessage {
   createdAt: number;
 }
 
-export interface BrowserSessionState {
-  liveURL: string;
-  browserSessionTicket?: string;
-  expiresAt?: number;
-}
-
 export interface TaskRun {
   id: string;
   goal: string;
-  mode: AgentMode;
-  model: ProviderId;
   status: 'queued' | 'planning' | 'running' | 'awaiting_input' | 'completed' | 'failed' | 'cancelled';
   steps: PlanStep[];
   stepsDone: number;
@@ -57,8 +46,6 @@ export interface TaskRun {
   summary?: string;
   startedAt: number;
   finishedAt?: number;
-  currentScreenshot?: string;
-  browserSession?: BrowserSessionState;
 }
 
 interface OmniState {
@@ -73,38 +60,17 @@ interface OmniState {
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearMessages: () => void;
 
-  model: ProviderId;
-  setModel: (m: ProviderId) => void;
-  mode: AgentMode;
-  setMode: (m: AgentMode) => void;
-
   reasoningEffort: ReasoningEffort;
   setReasoningEffort: (effort: ReasoningEffort) => void;
   thinkingEnabled: boolean;
   setThinkingEnabled: (enabled: boolean) => void;
+  activeProjectId: string | null;
+  setActiveProjectId: (projectId: string | null) => void;
 
   currentTask: TaskRun | null;
   setCurrentTask: (t: TaskRun | null) => void;
   appendEvent: (e: AgentEvent) => void;
   updateTaskStatus: (s: TaskRun['status']) => void;
-  incStepsDone: () => void;
-  setScreenshot: (s: string | undefined) => void;
-  setBrowserSession: (session: BrowserSessionState | undefined) => void;
-
-  computerOpen: boolean;
-  setComputerOpen: (v: boolean) => void;
-  computerTab: ComputerTab;
-  setComputerTab: (t: ComputerTab) => void;
-  computerFullscreen: boolean;
-  toggleComputerFullscreen: () => void;
-
-  replayIndex: number | null;
-  setReplayIndex: (i: number | null) => void;
-  live: boolean;
-  setLive: (v: boolean) => void;
-
-  sidebarOpen: boolean;
-  setSidebarOpen: (v: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 export const useOmni = create<OmniState>((set) => ({
@@ -122,15 +88,12 @@ export const useOmni = create<OmniState>((set) => ({
     })),
   clearMessages: () => set({ messages: [] }),
 
-  model: 'openai',
-  setModel: (model) => set({ model }),
-  mode: 'agent',
-  setMode: (mode) => set({ mode }),
-
   reasoningEffort: 'medium',
   setReasoningEffort: (reasoningEffort) => set({ reasoningEffort }),
   thinkingEnabled: true,
   setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
+  activeProjectId: null,
+  setActiveProjectId: (activeProjectId) => set({ activeProjectId }),
 
   currentTask: null,
   setCurrentTask: (currentTask) => set({ currentTask }),
@@ -174,36 +137,4 @@ export const useOmni = create<OmniState>((set) => ({
     set((state) =>
       state.currentTask ? { currentTask: { ...state.currentTask, status } } : state,
     ),
-  incStepsDone: () =>
-    set((state) =>
-      state.currentTask
-        ? { currentTask: { ...state.currentTask, stepsDone: state.currentTask.stepsDone + 1 } }
-        : state,
-    ),
-  setScreenshot: (currentScreenshot) =>
-    set((state) =>
-      state.currentTask ? { currentTask: { ...state.currentTask, currentScreenshot } } : state,
-    ),
-  setBrowserSession: (browserSession) =>
-    set((state) =>
-      state.currentTask ? { currentTask: { ...state.currentTask, browserSession } } : state,
-    ),
-
-  computerOpen: false,
-  setComputerOpen: (computerOpen) => set({ computerOpen }),
-  computerTab: 'browser',
-  setComputerTab: (computerTab) => set({ computerTab }),
-  computerFullscreen: false,
-  toggleComputerFullscreen: () => set((state) => ({ computerFullscreen: !state.computerFullscreen })),
-
-  replayIndex: null,
-  setReplayIndex: (replayIndex) => set({ replayIndex }),
-  live: true,
-  setLive: (live) => set({ live }),
-
-  sidebarOpen: false,
-  setSidebarOpen: (value) =>
-    set((state) => ({
-      sidebarOpen: typeof value === 'function' ? value(state.sidebarOpen) : value,
-    })),
 }));

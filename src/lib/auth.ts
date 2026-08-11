@@ -2,27 +2,30 @@
 import { db } from './db';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
+import { promisify } from 'util';
 
 export const SESSION_COOKIE = 'omninja_session';
 const SESSION_TTL_DAYS = 30;
+const scryptAsync = promisify(crypto.scrypt);
 
 export function randomToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-export function hashPassword(password: string): string {
+export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  const derived = await scryptAsync(password, salt, 64);
+  const hash = Buffer.from(derived as ArrayBuffer).toString('hex');
   return `${salt}:${hash}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [salt, hash] = stored.split(':');
   if (!salt || !hash) return false;
 
   try {
     const expected = Buffer.from(hash, 'hex');
-    const actual = crypto.scryptSync(password, salt, expected.length);
+    const actual = Buffer.from(await scryptAsync(password, salt, expected.length) as ArrayBuffer);
     if (expected.length === 0 || actual.length !== expected.length) return false;
     return crypto.timingSafeEqual(expected, actual);
   } catch {
@@ -62,12 +65,12 @@ async function createGuestUser() {
     data: {
       email: `guest-${suffix}@guest.omnininja.local`,
       name: 'Guest',
-      passwordHash: hashPassword(randomToken()),
+      passwordHash: await hashPassword(randomToken()),
       tier: 'free',
       credits: 50,
       bonusCredits: 0,
       role: 'user',
-      defaultModel: 'chatgpt',
+      defaultModel: 'OMNINJA',
     },
   });
 
@@ -109,11 +112,11 @@ export async function destroySession() {
 
 export async function registerUser(email: string, password: string, name?: string) {
   const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || !normalizedEmail.includes('@')) {
+  if (!normalizedEmail || normalizedEmail.length > 320 || !normalizedEmail.includes('@')) {
     return { ok: false, error: 'E-mail inválido' };
   }
-  if (password.length < 8) {
-    return { ok: false, error: 'A senha precisa ter pelo menos 8 caracteres' };
+  if (password.length < 8 || password.length > 256) {
+    return { ok: false, error: 'A senha precisa ter entre 8 e 256 caracteres' };
   }
 
   const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
@@ -123,12 +126,12 @@ export async function registerUser(email: string, password: string, name?: strin
     data: {
       email: normalizedEmail,
       name: name?.trim() || normalizedEmail.split('@')[0],
-      passwordHash: hashPassword(password),
+      passwordHash: await hashPassword(password),
       tier: 'free',
       credits: 300,
       bonusCredits: 0,
       role: 'user',
-      defaultModel: 'chatgpt',
+      defaultModel: 'OMNINJA',
     },
   });
 
@@ -138,9 +141,12 @@ export async function registerUser(email: string, password: string, name?: strin
 
 export async function loginUser(email: string, password: string) {
   const normalizedEmail = email.trim().toLowerCase();
+  if (normalizedEmail.length > 320 || password.length > 256) {
+    return { ok: false, error: 'E-mail ou senha inválidos' };
+  }
   const user = await db.user.findUnique({ where: { email: normalizedEmail } });
 
-  if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+  if (!user || !user.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
     return { ok: false, error: 'E-mail ou senha inválidos' };
   }
 

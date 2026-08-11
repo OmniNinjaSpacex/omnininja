@@ -9,8 +9,6 @@ export async function GET() {
   const balance = await getCreditBalance(user.id);
 
   const openAIReady = Boolean(process.env.OPENAI_API_KEY?.trim());
-  const browserlessReady = Boolean(process.env.BROWSERLESS_API_KEY?.trim());
-
   return NextResponse.json({
     user: {
       id: user.id,
@@ -25,7 +23,6 @@ export async function GET() {
     capabilities: {
       chat: openAIReady,
       tools: openAIReady,
-      browserless: browserlessReady,
       reasoningEffort: openAIReady,
       thinkingToggle: openAIReady,
     },

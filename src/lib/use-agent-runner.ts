@@ -24,11 +24,16 @@ function errorMessage(error: unknown): string {
 
 function sleep(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => {
+    const onAbort = () => {
       window.clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
       reject(new DOMException('Aborted', 'AbortError'));
-    }, { once: true });
+    };
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -54,6 +59,7 @@ export function useAgentRunner() {
     abortRef.current = abortController;
 
     const store = useOmni.getState();
+    const projectId = store.activeProjectId;
     const userMessage: ChatMessage = {
       id: uid(),
       role: 'user',
@@ -63,13 +69,19 @@ export function useAgentRunner() {
     };
     store.pushMessage(userMessage);
 
-    const history = useOmni.getState().messages
-      .filter((message) =>
-        (message.role === 'user' || message.role === 'assistant') &&
-        message.content &&
-        !message.streaming,
-      )
-      .map((message) => ({ role: message.role, content: message.content }));
+    const history = useOmni.getState().messages.flatMap(
+      (message): Array<{ role: 'user' | 'assistant'; content: string }> => {
+        if (
+          (message.role !== 'user' && message.role !== 'assistant') ||
+          !message.content ||
+          message.streaming
+        ) {
+          return [];
+        }
+
+        return [{ role: message.role, content: message.content }];
+      },
+    );
 
     const assistantMessage: ChatMessage = {
       id: uid(),
@@ -84,8 +96,6 @@ export function useAgentRunner() {
     store.setCurrentTask({
       id: uid(),
       goal: text,
-      mode: 'chat',
-      model: 'openai',
       status: 'running',
       steps: [],
       stepsDone: 0,
@@ -93,19 +103,22 @@ export function useAgentRunner() {
       artifacts: [],
       startedAt: Date.now(),
     });
-    store.setComputerOpen(false);
 
     try {
       if (mode === 'image') {
         const response = await fetch('/api/openai/image', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt: text }),
+          body: JSON.stringify({ prompt: text, projectId }),
           signal: abortController.signal,
         });
         const data = await response.json().catch(() => ({} as any));
         if (!response.ok || !data?.media?.url) {
           throw new Error(data?.error || `Falha ao gerar imagem (HTTP ${response.status})`);
+        }
+        if (typeof data.taskId === 'string') {
+          const current = useOmni.getState().currentTask;
+          if (current) useOmni.getState().setCurrentTask({ ...current, id: data.taskId });
         }
         const media = data.media as MessageMedia;
         useOmni.getState().updateMessage(assistantMessage.id, {
@@ -121,12 +134,16 @@ export function useAgentRunner() {
         const create = await fetch('/api/openai/video', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt: text, seconds: '8', size: '1280x720' }),
+          body: JSON.stringify({ prompt: text, seconds: '8', size: '1280x720', projectId }),
           signal: abortController.signal,
         });
         const created = await create.json().catch(() => ({} as any));
         if (!create.ok || !created?.id) {
           throw new Error(created?.error || `Falha ao iniciar vídeo (HTTP ${create.status})`);
+        }
+        if (typeof created.taskId === 'string') {
+          const current = useOmni.getState().currentTask;
+          if (current) useOmni.getState().setCurrentTask({ ...current, id: created.taskId });
         }
 
         const videoId = String(created.id);
@@ -137,7 +154,7 @@ export function useAgentRunner() {
         });
 
         for (let attempt = 0; attempt < 60 && !['completed', 'failed'].includes(status); attempt += 1) {
-          await sleep(2000, abortController.signal);
+          await sleep(10_000, abortController.signal);
           const check = await fetch(`/api/openai/video?id=${encodeURIComponent(videoId)}`, {
             cache: 'no-store',
             signal: abortController.signal,
@@ -186,6 +203,7 @@ export function useAgentRunner() {
         effort,
         thinkingEnabled,
         attachments,
+        projectId,
         (event) => useOmni.getState().appendEvent(event),
         (serverTaskId) => {
           const current = useOmni.getState().currentTask;
@@ -231,6 +249,7 @@ async function streamOmniNinjaResponse(
   effort: ReasoningEffort,
   thinkingEnabled: boolean,
   attachments: OmniNinjaAttachment[],
+  projectId: string | null,
   onActivity: (event: AgentEvent) => void,
   onStart: (taskId: string) => void,
   onFinal: (text: string) => void,
@@ -239,7 +258,7 @@ async function streamOmniNinjaResponse(
   const response = await fetch('/api/omnininja/respond', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, effort, thinkingEnabled, attachments }),
+    body: JSON.stringify({ messages, effort, thinkingEnabled, attachments, projectId }),
     signal,
   });
 

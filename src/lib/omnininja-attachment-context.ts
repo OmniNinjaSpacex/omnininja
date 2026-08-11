@@ -1,7 +1,7 @@
 import type { OmniNinjaAttachment } from './omnininja-attachments';
 import { isImageAttachment } from './omnininja-attachments';
+import { OPENAI_BASE_URL } from './openai-services';
 
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
 const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.6';
 
 function requireApiKey(): string {
@@ -24,13 +24,9 @@ function extractOutputText(payload: any): string {
   return parts.join('\n').trim();
 }
 
-function base64Payload(dataUrl: string): string {
-  const comma = dataUrl.indexOf(',');
-  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-}
-
 export async function buildAttachmentContext(
   attachments: OmniNinjaAttachment[],
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!attachments.length) return '';
 
@@ -59,7 +55,7 @@ export async function buildAttachmentContext(
     } else {
       content.push({
         type: 'input_file',
-        file_data: base64Payload(attachment.dataUrl),
+        file_data: attachment.dataUrl,
         filename: attachment.name,
       });
     }
@@ -80,7 +76,9 @@ export async function buildAttachmentContext(
       store: false,
     }),
     cache: 'no-store',
-    signal: AbortSignal.timeout(90_000),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(90_000)])
+      : AbortSignal.timeout(90_000),
   });
 
   const payload = await response.json().catch(() => ({} as any));

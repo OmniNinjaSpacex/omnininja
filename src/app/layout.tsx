@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -24,7 +23,7 @@ const sourceSerif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "OmniNinja AI",
+  title: "OMNININJA",
   description:
     "OMNINJA é um agente de IA com pesquisa, navegador, arquivos e execução isolada em um único workspace.",
   keywords: [
@@ -32,14 +31,14 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "OmniNinja" }],
   openGraph: {
-    title: "OmniNinja AI",
+    title: "OMNININJA",
     description: "Uma inteligência. Infinitas habilidades.",
-    siteName: "OmniNinja AI",
+    siteName: "OMNININJA",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "OmniNinja AI",
+    title: "OMNININJA",
     description: "Uma inteligência. Infinitas habilidades.",
   },
 };
@@ -50,7 +49,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className={`${inter.variable} ${jetbrains.variable} ${sourceSerif.variable} font-sans antialiased bg-background text-foreground`}>
         <ThemeProvider>
           {children}
-          <Toaster />
           <SonnerToaster theme="dark" position="bottom-right" />
         </ThemeProvider>
       </body>

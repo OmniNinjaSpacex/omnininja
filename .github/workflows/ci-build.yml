@@ -1,4 +1,4 @@
-name: OmniNinja build verification
+name: OMNININJA production verification
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17-alpine
@@ -29,31 +29,44 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      CI: '1'
-      DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/omnininja_ci?schema=public'
-      NEXTAUTH_SECRET: 'ci-only-placeholder-not-for-production'
-      OPENAI_API_KEY: 'ci-only-placeholder-not-for-production'
-      OMNINJA_MODEL: 'gpt-5.1'
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/omnininja_ci?schema=public
+      OPENAI_API_KEY: ci-only-placeholder-not-for-production
+      OMNINJA_MODEL: gpt-5.6
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate AI Lab host bootstrap
-        run: bash -n infra/ailab-host/bootstrap.sh
+      - name: Validate AI Lab bootstrap
+        run: bash -n infra/ailab-host/bootstrap.sh scripts/setup-sandbox.sh
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
+          cache: npm
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
 
-      - name: Generate Prisma client
-        run: npx prisma generate
+      - name: Generate Prisma Client
+        run: npm run db:generate
 
-      - name: Validate PostgreSQL schema
-        run: npx prisma db push --skip-generate
+      - name: Validate Prisma schema
+        run: npm run db:validate
 
-      - name: Build Next.js
+      - name: Apply migrations to PostgreSQL
+        run: npm run db:migrate:deploy
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      - name: Next.js production build
         run: npm run build

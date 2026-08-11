@@ -36,6 +36,8 @@ Não reintroduzir Claude, Gemini, Kimi, Grok, DeepSeek, GLM, Qwen, MiniMax, Nemo
 
 A única superfície conversacional de execução é o fluxo unificado de `/api/omnininja/respond` + `src/lib/omnininja-runtime.ts`.
 
+Esse endpoint cria uma `Task`, persiste mensagens e eventos, debita créditos de forma atômica e transmite somente estados sanitizados por SSE. Geração de imagem, vídeo e voz usa rotas multimodais dedicadas para evitar transportar payloads binários dentro do streaming textual.
+
 Arquitetura legada removida e que não deve ser recriada:
 
 - `/api/agent/run`;
@@ -81,8 +83,9 @@ Controles multimodais atuais:
 
 - PostgreSQL + Prisma.
 - histórico de mensagens e tarefas por usuário;
+- projetos vinculam tarefas sem criar outra identidade de agente;
 - embeddings de mensagens para recuperar contexto antigo relevante;
-- anexos são processados no backend;
+- anexos são processados no backend e apenas seus metadados seguros são preservados no histórico;
 - eventos internos podem ser persistidos para auditoria, mas o navegador recebe somente eventos sanitizados.
 
 ## Segurança e privacidade da implementação
@@ -92,6 +95,8 @@ Controles multimodais atuais:
 - nunca expor chain-of-thought;
 - nunca afirmar que uma ferramenta executou algo sem resultado confirmado;
 - shell deve permanecer fail-closed quando o sandbox seguro configurado não estiver disponível.
+- rotas de autenticação, execução e mídia devem aplicar limites, validar tamanho/forma do input e devolver erros públicos sanitizados;
+- migrações Prisma devem ser aplicadas a PostgreSQL antes de iniciar um deploy novo.
 
 ## Fonte da verdade para Work/Codex
 

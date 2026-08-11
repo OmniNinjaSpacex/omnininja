@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server';
+import { OPENAI_BASE_URL } from '@/lib/openai-services';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
 const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.6';
 
 export async function GET() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, configured: false, model: 'OMNINJA', error: 'OPENAI_API_KEY ausente' },
+      { ok: false, configured: false, model: 'OMNINJA', error: 'OMNINJA não configurado neste deploy.' },
       { status: 503 },
     );
   }
@@ -24,14 +24,13 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({} as any));
+      console.error('[health] mecanismo OMNININJA indisponível', response.status);
       return NextResponse.json(
         {
           ok: false,
           configured: true,
           model: 'OMNINJA',
-          upstreamStatus: response.status,
-          error: payload?.error?.message || 'OpenAI não confirmou acesso ao mecanismo privado configurado',
+          error: 'O mecanismo do OMNINJA não confirmou disponibilidade.',
           latencyMs: Date.now() - startedAt,
         },
         { status: 503 },
@@ -44,13 +43,14 @@ export async function GET() {
       model: 'OMNINJA',
       latencyMs: Date.now() - startedAt,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error('[health] falha ao verificar mecanismo OMNININJA', error);
     return NextResponse.json(
       {
         ok: false,
         configured: true,
         model: 'OMNINJA',
-        error: error?.message || 'Falha ao contatar OpenAI',
+        error: 'Falha ao verificar o mecanismo do OMNININJA.',
         latencyMs: Date.now() - startedAt,
       },
       { status: 503 },
