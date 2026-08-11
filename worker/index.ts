@@ -5,6 +5,7 @@ import {
   handleImageOptimization,
 } from 'vinext/server/image-optimization';
 import handler from 'vinext/server/app-router-entry';
+import { withEdgeDatabaseRequest } from '../src/lib/db.edge';
 
 interface AssetsBinding {
   fetch(request: Request): Promise<Response>;
@@ -57,7 +58,7 @@ const worker = {
       );
     }
 
-    return handler.fetch(request, env, context);
+    return withEdgeDatabaseRequest(() => handler.fetch(request, env, context));
   },
 };
 

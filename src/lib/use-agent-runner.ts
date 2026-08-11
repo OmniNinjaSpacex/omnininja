@@ -10,6 +10,7 @@ import {
 } from '@/lib/store';
 import type { OmniNinjaAttachment } from '@/lib/omnininja-attachments';
 import type { AgentEvent } from '@/lib/orchestrator';
+import { readPublicApiError } from '@/lib/public-api-error';
 import { toast } from 'sonner';
 
 export type OmniRunMode = 'chat' | 'image' | 'video';
@@ -268,8 +269,10 @@ async function streamOmniNinjaResponse(
   });
 
   if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`OMNININJA HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+    throw new Error(await readPublicApiError(
+      response,
+      `O OMNININJA está temporariamente indisponível (HTTP ${response.status}). Tente novamente em instantes.`,
+    ));
   }
 
   const reader = response.body.getReader();

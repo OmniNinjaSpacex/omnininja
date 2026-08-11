@@ -102,6 +102,8 @@ As rotas institucionais atuais são `/products`, `/research`, `/business`, `/dev
 ## Dados e contexto
 
 - PostgreSQL + Prisma.
+- no runtime Sites/Workerd, cada requisição recebe seu próprio Prisma Client;
+  conexões ou promessas de I/O nunca são reutilizadas globalmente entre requisições;
 - histórico de mensagens e tarefas por usuário;
 - projetos vinculam tarefas sem criar outra identidade de agente;
 - embeddings de mensagens para recuperar contexto antigo relevante;
