@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +8,7 @@ export async function GET() {
   const user = await getCurrentUser();
 
   const tasks = await db.task.findMany({
-    where: { userId: user.id, mode: 'omnininja' },
+    where: { userId: user.id, mode: { in: ['omnininja', 'chat', 'work', 'codex'] } },
     orderBy: { createdAt: 'desc' },
     take: 40,
     select: {

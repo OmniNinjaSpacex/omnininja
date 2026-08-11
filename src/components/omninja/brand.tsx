@@ -25,9 +25,8 @@ export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn('flex items-center gap-2.5 tracking-tight', className)}>
       <OmniNinjaLogo size={28} />
-      <span className="flex items-baseline gap-1 text-[15px] font-semibold text-white/92">
-        <span className="font-serif">omniNinja</span>
-        <span className="text-[10px] font-semibold uppercase tracking-[.12em] text-cyan-300/75">AI</span>
+      <span className="flex items-baseline text-[14px] font-semibold tracking-[.055em] text-white/92">
+        <span>OMNININJA</span>
       </span>
     </span>
   );

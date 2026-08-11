@@ -7,7 +7,7 @@ export function requireOpenAIKey(): string {
 }
 
 export const OPENAI_SERVICE_MODELS = {
-  chat: process.env.OMNINJA_MODEL || 'gpt-5.6',
+  chat: process.env.OMNININJA_MODEL || 'gpt-5.6',
   moderation: 'omni-moderation-latest',
   transcription: process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe',
   speech: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
@@ -20,13 +20,15 @@ export function buildOpenAIHostedTools(): any[] {
   const tools: any[] = [
     { type: 'web_search' },
     { type: 'code_interpreter', container: { type: 'auto' } },
+    { type: 'shell', environment: { type: 'container_auto' } },
   ];
 
-  const vectorStoreIds = (process.env.OPENAI_VECTOR_STORE_IDS || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .slice(0, 8);
+  const vectorStoreIds = Array.from(new Set(
+    (process.env.OPENAI_VECTOR_STORE_IDS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )).slice(0, 8);
 
   if (vectorStoreIds.length > 0) {
     tools.push({ type: 'file_search', vector_store_ids: vectorStoreIds, max_num_results: 12 });

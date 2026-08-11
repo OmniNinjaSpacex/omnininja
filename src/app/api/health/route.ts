@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ export async function GET() {
 
     return NextResponse.json({
       ok: true,
-      service: 'OMNINJA',
+      service: 'OMNININJA',
       database: 'operational',
       latencyMs: Date.now() - startedAt,
     });
@@ -21,7 +21,7 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
-        service: 'OMNINJA',
+        service: 'OMNININJA',
         database: 'unavailable',
         error: 'Verificação do banco falhou.',
         latencyMs: Date.now() - startedAt,

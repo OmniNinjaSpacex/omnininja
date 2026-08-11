@@ -14,17 +14,18 @@ import {
   Menu,
   MessageSquare,
   Monitor,
-  MoreHorizontal,
   Plus,
   Search,
   Settings,
   Sparkles,
+  SquarePen,
+  Telescope,
   Trash2,
   WandSparkles,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useOmni, type ChatMessage, type ReasoningEffort } from '@/lib/store';
+import { useOmni, type ChatMessage, type ReasoningEffort, type WorkspaceMode } from '@/lib/store';
 import { Wordmark } from './brand';
 import { MessageList } from './messages';
 import { ChatInput } from './chat-input';
@@ -55,10 +56,10 @@ interface ProjectSummary {
 
 const quickActions = [
   { icon: Search, label: 'Pesquisar', prompt: 'Pesquise e verifique informações atuais sobre: ' },
+  { icon: Telescope, label: 'Pesquisa profunda', prompt: 'Faça uma pesquisa profunda e verificável. Compare várias fontes atuais, destaque incertezas e cite as fontes sobre: ', profile: 'deep-research' as const },
   { icon: WandSparkles, label: 'Criar site', prompt: 'Crie um site completo para: ' },
   { icon: FileSearch, label: 'Analisar arquivos', prompt: 'Analise os arquivos que eu enviar e extraia o que importa.' },
   { icon: Monitor, label: 'Automatizar', prompt: 'Realize esta tarefa do início ao fim e verifique o resultado: ' },
-  { icon: MoreHorizontal, label: 'Mais', prompt: 'Quero realizar uma tarefa complexa: ' },
 ];
 
 const effortLabel: Record<ReasoningEffort, string> = {
@@ -78,6 +79,8 @@ export function Workspace() {
   const setReasoningEffort = useOmni((state) => state.setReasoningEffort);
   const thinkingEnabled = useOmni((state) => state.thinkingEnabled);
   const setThinkingEnabled = useOmni((state) => state.setThinkingEnabled);
+  const workspaceMode = useOmni((state) => state.workspaceMode);
+  const setWorkspaceMode = useOmni((state) => state.setWorkspaceMode);
   const activeProjectId = useOmni((state) => state.activeProjectId);
   const setActiveProjectId = useOmni((state) => state.setActiveProjectId);
 
@@ -89,7 +92,7 @@ export function Workspace() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [openAIHealthy, setOpenAIHealthy] = useState<boolean | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activePanel, setActivePanel] = useState<'library' | 'settings' | null>(null);
@@ -162,6 +165,17 @@ export function Workspace() {
     }
   }, [currentTask?.status, loadConversations, loadProjects]);
 
+  useEffect(() => {
+    const closeTransientUi = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setSidebarOpen(false);
+      setControlsMenuOpen(false);
+      setActivePanel(null);
+    };
+    window.addEventListener('keydown', closeTransientUi);
+    return () => window.removeEventListener('keydown', closeTransientUi);
+  }, []);
+
   const newTask = () => {
     clearMessages();
     setCurrentTask(null);
@@ -211,6 +225,7 @@ export function Workspace() {
           content: String(message.content || ''),
           model: message.model || undefined,
           attachments: Array.isArray(message.attachments) ? message.attachments : undefined,
+          media: Array.isArray(message.media) ? message.media : undefined,
           streaming: false,
           createdAt: new Date(message.createdAt).getTime() || Date.now(),
         };
@@ -285,11 +300,11 @@ export function Workspace() {
               aria-label="Fechar menu"
             />
             <motion.aside
-              initial={{ x: -280 }}
+              initial={{ x: '-100%' }}
               animate={{ x: 0 }}
-              exit={{ x: -280 }}
+              exit={{ x: '-100%' }}
               transition={{ type: 'spring', stiffness: 360, damping: 35 }}
-              className="fixed inset-y-0 left-0 z-50 w-[260px] bg-[#181818] lg:hidden"
+              className="fixed inset-y-0 left-0 z-50 w-[min(92vw,360px)] bg-[#181818] shadow-2xl lg:hidden"
             >
               <Sidebar
                 conversations={conversations}
@@ -306,12 +321,16 @@ export function Workspace() {
                 searchQuery={searchQuery}
                 onSearchOpen={() => setSearchOpen((value) => !value)}
                 onSearchQuery={setSearchQuery}
-                onOpenPanel={setActivePanel}
+                onOpenPanel={(panel) => {
+                  setActivePanel(panel);
+                  setSidebarOpen(false);
+                }}
                 openAIHealthy={openAIHealthy}
                 user={user}
                 isGuest={isGuest}
                 onLogin={() => router.push('/login')}
                 onLogout={logout}
+                onClose={() => setSidebarOpen(false)}
               />
             </motion.aside>
           </>
@@ -319,35 +338,45 @@ export function Workspace() {
       </AnimatePresence>
 
       <section className="flex min-w-0 flex-1 flex-col bg-[#212121]">
-        <header className="relative flex h-14 shrink-0 items-center px-3 sm:px-4">
+        <header className="relative flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-end px-3 pb-1 sm:h-14 sm:items-center sm:pb-0 sm:px-4">
           <button
-            className="mr-1 rounded-lg p-2 text-white/65 transition hover:bg-white/[0.06] lg:hidden"
+            className="mr-1 flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.045] text-white/65 transition hover:bg-white/[0.08] lg:hidden"
             onClick={() => setSidebarOpen(true)}
             aria-label="Abrir menu"
           >
             <Menu className="h-[18px] w-[18px]" />
           </button>
 
-          <div className="relative">
+          <div className="relative min-w-0">
             <button
-              onClick={() => setModelMenuOpen((value) => !value)}
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[14px] font-semibold text-white/90 transition hover:bg-white/[0.055]"
+              onClick={() => setControlsMenuOpen((value) => !value)}
+              className="hidden items-center gap-1.5 rounded-lg px-2.5 py-2 text-[14px] font-semibold text-white/90 transition hover:bg-white/[0.055] sm:flex"
             >
-              OMNINJA <ChevronDown className="h-3.5 w-3.5 text-white/40" />
+              OMNININJA <ChevronDown className="h-3.5 w-3.5 text-white/40" />
             </button>
             <AnimatePresence>
-              {modelMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -5, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -5, scale: 0.98 }}
-                  className="absolute left-0 top-11 z-30 w-72 rounded-2xl border border-white/[0.08] bg-[#2f2f2f] p-2 shadow-2xl"
-                >
+              {controlsMenuOpen && (
+                <>
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-20 cursor-default"
+                    onClick={() => setControlsMenuOpen(false)}
+                    aria-label="Fechar opções do OMNININJA"
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -5, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                    className="absolute left-0 top-11 z-30 w-[min(18rem,calc(100vw-1.5rem))] origin-top-left rounded-2xl border border-white/[0.08] bg-[#2f2f2f] p-2 shadow-2xl"
+                  >
                   <div className="rounded-xl px-3 py-2.5">
                     <div className="flex items-center gap-2 text-[13px] font-semibold">
-                      <Sparkles className="h-4 w-4 text-cyan-300" /> OMNINJA
+                      <Sparkles className="h-4 w-4 text-cyan-300" /> OMNININJA
                     </div>
-                    <div className="mt-1 text-[11px] leading-5 text-white/45">Um agente único com ferramentas internas automáticas.</div>
+                    <div className="mt-1 text-[11px] leading-5 text-white/45">Uma única IA com ferramentas internas automáticas.</div>
                   </div>
                   <div className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[.12em] text-white/30">Esforço</div>
                   {(['low', 'medium', 'high'] as ReasoningEffort[]).map((effort) => (
@@ -355,7 +384,7 @@ export function Workspace() {
                       key={effort}
                       onClick={() => {
                         setReasoningEffort(effort);
-                        setModelMenuOpen(false);
+                        setControlsMenuOpen(false);
                       }}
                       className={`mt-0.5 flex w-full items-center rounded-xl px-3 py-2.5 text-left text-[12px] transition ${reasoningEffort === effort ? 'bg-white/[0.08] text-white' : 'text-white/65 hover:bg-white/[0.05]'}`}
                     >
@@ -372,10 +401,13 @@ export function Workspace() {
                       {thinkingEnabled ? 'Ligado' : 'Desligado'}
                     </span>
                   </button>
-                </motion.div>
+                  </motion.div>
+                </>
               )}
             </AnimatePresence>
           </div>
+
+          <WorkspaceModeSwitch mode={workspaceMode} onMode={setWorkspaceMode} />
 
           <div className="ml-auto flex items-center gap-1 text-[11px] text-white/35">
             {openAIHealthy === true && (
@@ -388,10 +420,17 @@ export function Workspace() {
                 setSearchOpen(true);
                 setSidebarOpen(true);
               }}
-              className="rounded-lg p-2 transition hover:bg-white/[0.055]"
+              className="hidden rounded-lg p-2 transition hover:bg-white/[0.055] sm:block"
               aria-label="Pesquisar"
             >
               <Search className="h-4 w-4" />
+            </button>
+            <button
+              onClick={newTask}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-white/55 transition hover:bg-white/[0.055] hover:text-white lg:hidden"
+              aria-label="Nova tarefa"
+            >
+              <SquarePen className="h-4 w-4" />
             </button>
           </div>
         </header>
@@ -403,7 +442,7 @@ export function Workspace() {
         )}
         {capabilities && capabilities.chat === false && (
           <div className="mx-3 rounded-xl bg-amber-400/[0.06] px-3 py-2 text-[11px] text-amber-300">
-            OMNINJA ainda não está configurado neste deploy.
+            OMNININJA ainda não está configurado neste deploy.
           </div>
         )}
 
@@ -439,7 +478,7 @@ export function Workspace() {
                 initial={{ opacity: 0, y: 12, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                className="fixed inset-x-3 top-[max(1rem,env(safe-area-inset-top))] z-50 mx-auto max-h-[calc(100dvh-2rem)] w-auto max-w-xl overflow-y-auto rounded-2xl border border-white/[0.08] bg-[#282828] p-5 shadow-2xl sm:top-20"
+                className="fixed inset-0 z-50 mx-auto max-h-[100dvh] w-full overflow-y-auto bg-[#212121] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] shadow-2xl sm:inset-x-3 sm:bottom-auto sm:top-20 sm:max-h-[calc(100dvh-6rem)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-white/[0.08] sm:bg-[#282828] sm:p-5"
                 aria-modal="true"
                 role="dialog"
                 aria-label={activePanel === 'library' ? 'Biblioteca' : 'Configurações'}
@@ -513,24 +552,50 @@ export function Workspace() {
 }
 
 function HomeComposer() {
+  const workspaceMode = useOmni((state) => state.workspaceMode);
+  const setWorkspaceMode = useOmni((state) => state.setWorkspaceMode);
+  const setReasoningEffort = useOmni((state) => state.setReasoningEffort);
+  const setThinkingEnabled = useOmni((state) => state.setThinkingEnabled);
+  const copy = {
+    chat: {
+      title: 'Como posso ajudar?',
+      description: 'Converse naturalmente. O OMNININJA pesquisa e usa ferramentas somente quando isso melhora a resposta.',
+    },
+    work: {
+      title: 'O que vamos realizar?',
+      description: 'Defina o resultado. O OMNININJA organiza as etapas, executa o necessário e verifica a entrega.',
+    },
+    codex: {
+      title: 'O que vamos construir?',
+      description: 'Descreva o projeto, correção ou ideia. O OMNININJA programa, executa builds e testa em ambiente isolado.',
+    },
+  }[workspaceMode];
+
   return (
     <div className="omni-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-8 pt-6">
       <div className="mx-auto flex w-full max-w-[820px] flex-1 flex-col justify-center">
         <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.05] text-cyan-200">
           <Sparkles className="h-5 w-5" />
         </div>
-        <h1 className="text-center text-[30px] font-semibold tracking-[-.03em] text-white/95 sm:text-[36px]">O que posso fazer por você?</h1>
+        <h1 className="text-center text-[30px] font-semibold tracking-[-.03em] text-white/95 sm:text-[36px]">{copy.title}</h1>
         <p className="mx-auto mt-2 max-w-lg text-center text-[13px] leading-5 text-white/40">
-          Converse normalmente ou atribua uma tarefa. O OMNINJA usa pesquisa, navegador, arquivos e execução isolada quando precisar.
+          {copy.description}
         </p>
 
         <div className="mt-7"><ChatInput /></div>
 
         <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {quickActions.map(({ icon: Icon, label, prompt }) => (
+          {quickActions.map(({ icon: Icon, label, prompt, profile }) => (
             <button
               key={label}
-              onClick={() => window.dispatchEvent(new CustomEvent('omninja:prompt', { detail: prompt }))}
+              onClick={() => {
+                if (profile === 'deep-research') {
+                  setWorkspaceMode('work');
+                  setReasoningEffort('high');
+                  setThinkingEnabled(true);
+                }
+                window.dispatchEvent(new CustomEvent('omninja:prompt', { detail: prompt }));
+              }}
               className="flex h-9 items-center gap-2 rounded-xl border border-white/[0.07] bg-transparent px-3.5 text-[11px] text-white/50 transition hover:bg-white/[0.045] hover:text-white/80"
             >
               <Icon className="h-3.5 w-3.5" /> {label}
@@ -540,9 +605,46 @@ function HomeComposer() {
 
         <div className="mx-auto mt-10 flex items-center gap-3 text-[11px] text-white/30">
           <Bot className="h-4 w-4 text-cyan-300/70" />
-          <span>Workspace privado com navegador e arquivos isolados por tarefa.</span>
+          <span>Ferramentas hospedadas e ambientes isolados, escolhidos automaticamente.</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function WorkspaceModeSwitch({
+  mode,
+  onMode,
+}: {
+  mode: WorkspaceMode;
+  onMode: (mode: WorkspaceMode) => void;
+}) {
+  const modes: Array<{ id: WorkspaceMode; label: string }> = [
+    { id: 'chat', label: 'Chat' },
+    { id: 'work', label: 'Work' },
+    { id: 'codex', label: 'Codex' },
+  ];
+
+  return (
+    <div className="absolute left-1/2 flex -translate-x-1/2 items-center rounded-full border border-white/[0.055] bg-black/20 p-1 shadow-sm">
+      {modes.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onMode(item.id)}
+          className={`relative isolate flex h-7 min-w-[48px] items-center justify-center rounded-full px-2 text-[10px] font-medium transition sm:min-w-[56px] sm:text-[11px] ${mode === item.id ? 'text-white/90' : 'text-white/38 hover:text-white/65'}`}
+          aria-pressed={mode === item.id}
+        >
+          {mode === item.id && (
+            <motion.span
+              layoutId="workspace-mode-pill"
+              className="absolute inset-0 -z-10 rounded-full bg-white/[0.09]"
+              transition={{ type: 'spring', stiffness: 430, damping: 34 }}
+            />
+          )}
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -568,6 +670,7 @@ function Sidebar({
   isGuest,
   onLogin,
   onLogout,
+  onClose,
 }: {
   conversations: ConversationSummary[];
   projects: ProjectSummary[];
@@ -589,12 +692,13 @@ function Sidebar({
   isGuest: boolean;
   onLogin: () => void;
   onLogout: () => void;
+  onClose?: () => void;
 }) {
   const [projectFormOpen, setProjectFormOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [projectSaving, setProjectSaving] = useState(false);
   const nav = [
-    { icon: Sparkles, label: 'Agente', action: onNewTask },
+    { icon: Sparkles, label: 'Chat', action: onNewTask },
     { icon: Search, label: 'Buscar', action: onSearchOpen },
     { icon: Library, label: 'Biblioteca', action: () => onOpenPanel('library') },
   ];
@@ -620,8 +724,15 @@ function Sidebar({
   };
 
   return (
-    <div className="flex h-full w-full flex-col px-2 py-2.5">
-      <div className="flex h-11 items-center px-2"><Wordmark /></div>
+    <div className="flex h-full w-full flex-col px-2 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-[max(0.625rem,env(safe-area-inset-top))]">
+      <div className="flex h-11 items-center px-2">
+        <Wordmark />
+        {onClose && (
+          <button onClick={onClose} className="ml-auto flex h-9 w-9 items-center justify-center rounded-full text-white/45 transition hover:bg-white/[0.06] hover:text-white" aria-label="Fechar menu">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
       <button
         onClick={onNewTask}
@@ -755,7 +866,7 @@ function Sidebar({
           <div className="min-w-0 flex-1">
             <div className="truncate text-[11px] text-white/70">{user?.name || 'Workspace privado'}</div>
             <div className="truncate text-[9px] text-white/28">
-              {openAIHealthy === true ? 'OMNINJA conectado' : openAIHealthy === false ? 'OMNINJA indisponível' : 'Verificando…'}
+              {openAIHealthy === true ? 'OMNININJA conectado' : openAIHealthy === false ? 'OMNININJA indisponível' : 'Verificando…'}
             </div>
           </div>
           <button onClick={isGuest ? onLogin : onLogout} className="p-1.5 text-white/30 hover:text-white/70" aria-label={isGuest ? 'Entrar' : 'Sair'}>

@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type MessageMedia,
   type ReasoningEffort,
+  type WorkspaceMode,
 } from '@/lib/store';
 import type { OmniNinjaAttachment } from '@/lib/omnininja-attachments';
 import type { AgentEvent } from '@/lib/orchestrator';
@@ -60,6 +61,7 @@ export function useAgentRunner() {
 
     const store = useOmni.getState();
     const projectId = store.activeProjectId;
+    const workspaceMode = store.workspaceMode;
     const userMessage: ChatMessage = {
       id: uid(),
       role: 'user',
@@ -87,7 +89,7 @@ export function useAgentRunner() {
       id: uid(),
       role: 'assistant',
       content: mode === 'image' ? 'Criando imagem…' : mode === 'video' ? 'Criando vídeo…' : '',
-      model: 'OMNINJA',
+      model: 'OMNININJA',
       streaming: true,
       createdAt: Date.now(),
     };
@@ -109,7 +111,7 @@ export function useAgentRunner() {
         const response = await fetch('/api/openai/image', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt: text, projectId }),
+          body: JSON.stringify({ prompt: text, projectId, attachments }),
           signal: abortController.signal,
         });
         const data = await response.json().catch(() => ({} as any));
@@ -186,7 +188,7 @@ export function useAgentRunner() {
           media: [{
             id: videoId,
             kind: 'video',
-            name: 'Vídeo gerado pelo OMNINJA',
+            name: 'Vídeo gerado pelo OMNININJA',
             mimeType: 'video/mp4',
             url: `/api/openai/video?id=${encodeURIComponent(videoId)}&content=1`,
             status: 'completed',
@@ -204,15 +206,17 @@ export function useAgentRunner() {
         thinkingEnabled,
         attachments,
         projectId,
+        workspaceMode,
         (event) => useOmni.getState().appendEvent(event),
         (serverTaskId) => {
           const current = useOmni.getState().currentTask;
           if (current) useOmni.getState().setCurrentTask({ ...current, id: serverTaskId });
         },
-        (finalText) => {
+        (finalText, media) => {
           useOmni.getState().updateMessage(assistantMessage.id, {
             content: finalText,
-            model: 'OMNINJA',
+            model: 'OMNININJA',
+            ...(media?.length ? { media } : {}),
           });
         },
         abortController.signal,
@@ -235,7 +239,7 @@ export function useAgentRunner() {
         content: `Não consegui concluir esta resposta.\n\n**Erro:** ${message}`,
         streaming: false,
       });
-      toast.error('Falha no OMNINJA', { description: message });
+      toast.error('Falha no OMNININJA', { description: message });
     } finally {
       if (abortRef.current === abortController) abortRef.current = null;
     }
@@ -250,21 +254,22 @@ async function streamOmniNinjaResponse(
   thinkingEnabled: boolean,
   attachments: OmniNinjaAttachment[],
   projectId: string | null,
+  workspaceMode: WorkspaceMode,
   onActivity: (event: AgentEvent) => void,
   onStart: (taskId: string) => void,
-  onFinal: (text: string) => void,
+  onFinal: (text: string, media?: MessageMedia[]) => void,
   signal: AbortSignal,
 ) {
   const response = await fetch('/api/omnininja/respond', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, effort, thinkingEnabled, attachments, projectId }),
+    body: JSON.stringify({ messages, effort, thinkingEnabled, attachments, projectId, workspaceMode }),
     signal,
   });
 
   if (!response.ok || !response.body) {
     const detail = await response.text().catch(() => '');
-    throw new Error(`OMNINJA HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
+    throw new Error(`OMNININJA HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
   }
 
   const reader = response.body.getReader();
@@ -305,9 +310,18 @@ async function streamOmniNinjaResponse(
       } else if (data.type === 'final' && typeof data.text === 'string') {
         sawFinal = true;
         streamedText = data.text;
-        onFinal(data.text);
+        const media: MessageMedia[] = Array.isArray(data.media)
+          ? data.media.flatMap((item: any) => {
+              const id = typeof item?.id === 'string' ? item.id : '';
+              const name = typeof item?.name === 'string' ? item.name : 'Arquivo gerado';
+              const url = typeof item?.url === 'string' ? item.url : '';
+              if (!id || !url.startsWith('/api/artifacts/')) return [];
+              return [{ id, kind: 'file' as const, name, url }];
+            }).slice(0, 16)
+          : [];
+        onFinal(data.text, media);
       } else if (data.type === 'error') {
-        throw new Error(data.error || 'OMNINJA execution failed');
+        throw new Error(data.error || 'OMNININJA execution failed');
       } else if (data.type === 'done') {
         sawDone = true;
       }
@@ -315,5 +329,5 @@ async function streamOmniNinjaResponse(
   }
 
   if (!sawDone) throw new Error('A conexão terminou sem confirmação de sucesso.');
-  if (!sawFinal) throw new Error('O OMNINJA terminou sem uma resposta final.');
+  if (!sawFinal) throw new Error('O OMNININJA terminou sem uma resposta final.');
 }

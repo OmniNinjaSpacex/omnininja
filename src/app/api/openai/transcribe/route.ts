@@ -61,5 +61,5 @@ export async function POST(req: Request) {
     return Response.json({ error: 'Não foi possível transcrever o áudio.' }, { status: 502 });
   }
 
-  return Response.json({ text: String(payload?.text || ''), model: 'OMNINJA' });
+  return Response.json({ text: String(payload?.text || ''), model: 'OMNININJA' });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 import { parseJsonRequest } from '@/lib/http-body';
 
 // Parse a human-ish schedule into a next-run Date.
@@ -81,8 +81,8 @@ export async function POST(req: Request) {
       userId: user.id,
       title: title || prompt.slice(0, 60),
       prompt,
-      mode: 'omnininja',
-      model: 'OMNINJA',
+      mode: 'work',
+      model: 'OMNININJA',
       schedule,
       enabled: true,
       nextRunAt,

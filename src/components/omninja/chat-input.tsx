@@ -129,6 +129,7 @@ export function ChatInput() {
   const setReasoningEffort = useOmni((state) => state.setReasoningEffort);
   const thinkingEnabled = useOmni((state) => state.thinkingEnabled);
   const setThinkingEnabled = useOmni((state) => state.setThinkingEnabled);
+  const workspaceMode = useOmni((state) => state.workspaceMode);
   const { run, stop } = useAgentRunner();
 
   const taskRunning = Boolean(
@@ -151,6 +152,15 @@ export function ChatInput() {
     window.addEventListener('omninja:prompt', handler);
     return () => window.removeEventListener('omninja:prompt', handler);
   }, []);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAttachmentMenuOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [attachmentMenuOpen]);
 
   useEffect(() => () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -335,6 +345,11 @@ export function ChatInput() {
   };
 
   const canSend = Boolean(text.trim() || attachments.length > 0);
+  const chatPlaceholder = workspaceMode === 'work'
+    ? 'Descreva o resultado que você quer'
+    : workspaceMode === 'codex'
+      ? 'O que vamos construir ou corrigir?'
+      : 'Pergunte qualquer coisa';
 
   return (
     <div className="relative bg-transparent pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2">
@@ -375,20 +390,20 @@ export function ChatInput() {
           )}
         </AnimatePresence>
 
-        <motion.div layout transition={{ type: 'spring', stiffness: 420, damping: 34 }} className="rounded-[26px] bg-[#2f2f2f] shadow-[0_0_0_1px_rgba(255,255,255,0.025),0_10px_35px_rgba(0,0,0,0.12)] transition focus-within:bg-[#303030]">
+        <motion.div layout transition={{ type: 'spring', stiffness: 420, damping: 34 }} className="rounded-[25px] border border-white/[0.035] bg-[#2f2f2f] shadow-[0_10px_35px_rgba(0,0,0,0.16)] transition focus-within:border-white/[0.06] focus-within:bg-[#303030]">
           <textarea
             ref={taRef}
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder={generationMode === 'image' ? 'Descreva a imagem' : generationMode === 'video' ? 'Descreva o vídeo' : voiceLive ? 'Voz ao vivo conectada' : 'Pergunte qualquer coisa'}
+            placeholder={generationMode === 'image' ? 'Descreva a imagem' : generationMode === 'video' ? 'Descreva o vídeo' : voiceLive ? 'Voz ao vivo conectada' : chatPlaceholder}
             aria-label="Mensagem para o OmniNinja"
-            className="max-h-[220px] min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[15px] leading-6 text-[#ececec] outline-none placeholder:text-white/35 sm:px-5"
+            className="max-h-[220px] min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[16px] leading-6 text-[#ececec] outline-none placeholder:text-white/35 sm:px-5 sm:text-[15px]"
           />
 
           <div className="flex items-center gap-1 px-2.5 pb-2.5 sm:px-3">
-            <button type="button" onClick={() => setAttachmentMenuOpen(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/60 transition hover:bg-white/[0.07] hover:text-white active:scale-95" aria-label="Adicionar ou criar">
+            <button type="button" onClick={() => setAttachmentMenuOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/60 transition hover:bg-white/[0.07] hover:text-white active:scale-95 sm:h-9 sm:w-9" aria-label="Adicionar ou criar">
               <Plus className="h-[18px] w-[18px]" />
             </button>
 
@@ -418,17 +433,17 @@ export function ChatInput() {
               <span className="hidden sm:inline">Pensar</span>
             </button>
 
-            <button type="button" onClick={() => void toggleRecording()} disabled={transcribing || voiceLive} className={cn('flex h-8 w-8 items-center justify-center rounded-full transition active:scale-95', recording ? 'bg-red-400/15 text-red-300' : transcribing ? 'text-cyan-300' : 'text-white/45 hover:bg-white/[0.06] hover:text-white/80')} aria-label={recording ? 'Parar gravação' : 'Ditar por voz'}>
+            <button type="button" onClick={() => void toggleRecording()} disabled={transcribing || voiceLive} className={cn('flex h-10 w-10 items-center justify-center rounded-full transition active:scale-95 sm:h-8 sm:w-8', recording ? 'bg-red-400/15 text-red-300' : transcribing ? 'text-cyan-300' : 'text-white/45 hover:bg-white/[0.06] hover:text-white/80')} aria-label={recording ? 'Parar gravação' : 'Ditar por voz'}>
               {recording ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className={cn('h-4 w-4', transcribing && 'animate-pulse')} />}
             </button>
 
             <div className="ml-auto">
               {taskRunning ? (
-                <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition active:scale-95" onClick={stopRun} aria-label="Parar resposta">
+                <button type="button" className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition active:scale-95 sm:h-9 sm:w-9" onClick={stopRun} aria-label="Parar resposta">
                   <Square className="h-3.5 w-3.5 fill-current" />
                 </button>
               ) : (
-                <button type="button" className={cn('flex h-9 w-9 items-center justify-center rounded-full transition active:scale-95', canSend ? 'bg-white text-black hover:bg-white/90' : 'bg-white/[0.08] text-white/25')} onClick={() => void submit()} disabled={!canSend} aria-label="Enviar mensagem">
+                <button type="button" className={cn('flex h-10 w-10 items-center justify-center rounded-full transition active:scale-95 sm:h-9 sm:w-9', canSend ? 'bg-cyan-300 text-[#06202c] shadow-[0_0_24px_rgba(66,199,245,.16)] hover:bg-cyan-200' : 'bg-white/[0.08] text-white/25')} onClick={() => void submit()} disabled={!canSend} aria-label="Enviar mensagem">
                   <ArrowUp className="h-4 w-4" />
                 </button>
               )}
@@ -436,20 +451,21 @@ export function ChatInput() {
           </div>
         </motion.div>
 
-        <p className="mt-2 text-center text-[10px] text-white/25">OMNINJA pode cometer erros. Confira informações importantes.</p>
+        <p className="mt-2 text-center text-[10px] text-white/25">OMNININJA pode cometer erros. Confira informações importantes.</p>
       </div>
 
       <AnimatePresence>
         {attachmentMenuOpen && (
           <>
             <motion.button type="button" aria-label="Fechar menu" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAttachmentMenuOpen(false)} className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]" />
-            <motion.div initial={{ opacity: 0, y: 28, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24, scale: 0.98 }} transition={{ type: 'spring', stiffness: 390, damping: 32 }} className="fixed bottom-3 left-3 right-3 z-[60] mx-auto max-w-sm overflow-hidden rounded-[24px] border border-white/[0.08] bg-[#2f2f2f] p-2 shadow-2xl sm:absolute sm:bottom-[76px] sm:left-4 sm:right-auto sm:w-72">
+            <motion.div initial={{ opacity: 0, y: 44 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 44 }} transition={{ type: 'spring', stiffness: 390, damping: 32 }} className="fixed bottom-0 left-0 right-0 z-[60] mx-auto max-h-[80dvh] overflow-y-auto rounded-t-[28px] border border-b-0 border-white/[0.08] bg-[#2f2f2f] p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl sm:absolute sm:bottom-[76px] sm:left-4 sm:right-auto sm:w-72 sm:rounded-[24px] sm:border sm:pb-2">
+              <div className="mx-auto my-1 h-1 w-9 rounded-full bg-white/15 sm:hidden" />
               <div className="px-3 pb-1 pt-2 text-xs font-medium text-white/40">Adicionar ou criar</div>
               <AttachmentMenuButton icon={Camera} label="Câmera" onClick={() => cameraRef.current?.click()} />
               <AttachmentMenuButton icon={ImageIcon} label="Fotos" onClick={() => photosRef.current?.click()} />
               <AttachmentMenuButton icon={FileText} label="Arquivos" onClick={() => filesRef.current?.click()} />
               <div className="my-1 border-t border-white/[0.06]" />
-              <AttachmentMenuButton icon={ImageIcon} label="Criar imagem" onClick={() => { setGenerationMode('image'); setAttachmentMenuOpen(false); requestAnimationFrame(() => taRef.current?.focus()); }} />
+              <AttachmentMenuButton icon={ImageIcon} label={attachments.some((item) => item.mimeType.startsWith('image/')) ? 'Editar imagem' : 'Criar imagem'} onClick={() => { setGenerationMode('image'); setAttachmentMenuOpen(false); requestAnimationFrame(() => taRef.current?.focus()); }} />
               <AttachmentMenuButton icon={Video} label="Criar vídeo" onClick={() => { setGenerationMode('video'); setAttachmentMenuOpen(false); requestAnimationFrame(() => taRef.current?.focus()); }} />
               <AttachmentMenuButton icon={AudioLines} label={voiceLive ? 'Encerrar voz ao vivo' : 'Voz ao vivo'} onClick={() => void toggleRealtimeVoice()} active={voiceLive} />
               <div className="px-3 pb-2 pt-1 text-[10px] leading-relaxed text-white/30">

@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Check, Copy, FileText, Image as ImageIcon, LoaderCircle, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Check, ChevronDown, Copy, Download, FileText, Image as ImageIcon, LoaderCircle, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { OmniNinjaLogo } from './brand';
 import { useOmni, type ChatMessage, type MessageMedia } from '@/lib/store';
 import { cn } from '@/lib/utils';
@@ -13,23 +13,63 @@ import { cn } from '@/lib/utils';
 export function MessageList() {
   const messages = useOmni((state) => state.messages);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const followOutputRef = useRef(true);
+  const [showLatestButton, setShowLatestButton] = useState(false);
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const element = scrollRef.current;
+    if (!element) return;
+    followOutputRef.current = true;
+    setShowLatestButton(false);
+    element.scrollTo({ top: element.scrollHeight, behavior });
+  }, []);
 
   useEffect(() => {
+    if (!followOutputRef.current) return;
     const id = requestAnimationFrame(() => {
-      const element = scrollRef.current;
-      if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+      const streaming = messages.at(-1)?.streaming;
+      scrollToLatest(streaming ? 'auto' : 'smooth');
     });
     return () => cancelAnimationFrame(id);
-  }, [messages]);
+  }, [messages, scrollToLatest]);
+
+  const handleScroll = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    const nearBottom = distanceFromBottom < 96;
+    followOutputRef.current = nearBottom;
+    setShowLatestButton(!nearBottom);
+  };
 
   if (messages.length === 0) return <EmptyChat />;
 
   return (
-    <div ref={scrollRef} className="omni-scroll h-full overflow-y-auto scroll-smooth">
-      <div className="mx-auto w-full max-w-[768px] space-y-8 px-4 pb-8 pt-6 sm:pb-10 sm:pt-8">
-        {messages.map((message) => <MessageRow key={message.id} message={message} />)}
-        <div className="h-3" />
+    <div className="relative h-full">
+      <div ref={scrollRef} onScroll={handleScroll} className="omni-scroll h-full overflow-y-auto overscroll-contain scroll-smooth">
+        <div className="mx-auto w-full max-w-[768px] space-y-8 px-4 pb-8 pt-6 sm:pb-10 sm:pt-8">
+          <AnimatePresence initial={false}>
+            {messages.map((message) => <MessageRow key={message.id} message={message} />)}
+          </AnimatePresence>
+          <div className="h-3" />
+        </div>
       </div>
+      <AnimatePresence>
+        {showLatestButton && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: 8, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 430, damping: 31 }}
+            onClick={() => scrollToLatest()}
+            className="absolute bottom-3 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-white/[0.08] bg-[#2f2f2f] text-white/65 shadow-xl transition hover:bg-[#383838] hover:text-white"
+            aria-label="Ir para a resposta mais recente"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -43,7 +83,7 @@ function MessageRow({ message }: { message: ChatMessage }) {
 
   if (message.role === 'user') {
     return (
-      <motion.div initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="flex justify-end">
+      <motion.div layout="position" initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }} className="flex justify-end">
         <div className="max-w-[92%] sm:max-w-[78%]">
           {message.attachments && message.attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap justify-end gap-2">
@@ -69,10 +109,10 @@ function MessageRow({ message }: { message: ChatMessage }) {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="group">
+    <motion.div layout="position" initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2 }} className="group">
       <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-white/40">
         <OmniNinjaLogo size={20} />
-        <span>OMNINJA</span>
+        <span>OMNININJA</span>
       </div>
       <div className="pl-0 sm:pl-7">
         {message.streaming && message.content === '' ? (
@@ -93,9 +133,23 @@ function MediaResults({ media }: { media: MessageMedia[] }) {
       {media.map((item) => (
         <div key={item.id} className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#202020]">
           {item.kind === 'image' && item.url ? (
-            <img src={item.url} alt={item.name || 'Imagem gerada pelo OMNINJA'} className="max-h-[560px] w-full object-contain" />
+            <img src={item.url} alt={item.name || 'Imagem gerada pelo OMNININJA'} className="max-h-[560px] w-full object-contain" />
           ) : item.kind === 'video' && item.url ? (
             <video src={item.url} controls playsInline preload="metadata" className="max-h-[560px] w-full bg-black object-contain" />
+          ) : item.kind === 'file' && item.url ? (
+            <a
+              href={item.url}
+              download
+              className="flex min-h-32 items-center gap-4 p-5 text-left transition hover:bg-white/[0.025]"
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-300/[0.08] text-cyan-200">
+                <FileText className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-white/85">{item.name || 'Arquivo gerado'}</span>
+                <span className="mt-1 flex items-center gap-1.5 text-[11px] text-white/38"><Download className="h-3.5 w-3.5" /> Baixar arquivo</span>
+              </span>
+            </a>
           ) : (
             <div className="flex min-h-40 flex-col items-center justify-center gap-3 p-5 text-center text-sm text-white/45">
               <LoaderCircle className="h-5 w-5 animate-spin text-cyan-300" />

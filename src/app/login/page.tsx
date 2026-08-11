@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, LockKeyhole, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,21 @@ import { useOmni } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
 type AuthMode = 'login' | 'register';
+type OAuthProvider = {
+  id: 'google';
+  label: string;
+};
+
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  account_exists:
+    'Este e-mail já possui uma conta. Entre pelo método original para evitar uma vinculação insegura.',
+  cancelled: 'O login social foi cancelado.',
+  invalid_profile:
+    'O provedor não compartilhou um e-mail válido para concluir o login.',
+  invalid_state: 'A tentativa de login expirou. Tente novamente.',
+  not_configured: 'Este provedor de login ainda não está disponível.',
+  provider_error: 'O provedor não concluiu o login. Tente novamente.',
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,11 +35,52 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<OAuthProvider['id'] | null>(null);
+  const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const oauthError = new URLSearchParams(window.location.search).get('oauth_error');
+    if (oauthError) {
+      queueMicrotask(() => {
+        if (active) {
+          setError(OAUTH_ERROR_MESSAGES[oauthError] || OAUTH_ERROR_MESSAGES.provider_error);
+        }
+      });
+    }
+
+    fetch('/api/auth/oauth/providers', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const payload = await response.json().catch(() => ({}));
+        return Array.isArray(payload?.providers) ? payload.providers : [];
+      })
+      .then((providers) => {
+        if (active) setOauthProviders(providers);
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const enterWorkspace = () => {
     setView('workspace');
     router.push('/');
+  };
+
+  const startOAuth = (
+    event: MouseEvent<HTMLAnchorElement>,
+    provider: OAuthProvider['id'],
+  ) => {
+    if (loading || oauthLoading) {
+      event.preventDefault();
+      return;
+    }
+    setError('');
+    setOauthLoading(provider);
   };
 
   const submit = async (event: FormEvent) => {
@@ -147,7 +203,49 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={submit} className="mt-6 space-y-4">
+          {oauthProviders.length > 0 && (
+            <>
+              <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                {oauthProviders.map((provider) => (
+                  <Button
+                    key={provider.id}
+                    asChild
+                    variant="outline"
+                    className={cn(
+                      'w-full gap-2',
+                      (loading || oauthLoading) && 'pointer-events-none opacity-50',
+                    )}
+                  >
+                    <a
+                      href={`/api/auth/oauth/${provider.id}?returnTo=%2F`}
+                      aria-disabled={loading || Boolean(oauthLoading)}
+                      onClick={(event) => startOAuth(event, provider.id)}
+                    >
+                      {oauthLoading === provider.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold"
+                        >
+                          G
+                        </span>
+                      )}
+                      {provider.label}
+                    </a>
+                  </Button>
+                ))}
+              </div>
+              <div className="my-5 flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="h-px flex-1 bg-border" /> ou use e-mail <div className="h-px flex-1 bg-border" />
+              </div>
+            </>
+          )}
+
+          <form
+            onSubmit={submit}
+            className={cn('space-y-4', oauthProviders.length === 0 && 'mt-6')}
+          >
             {mode === 'register' && (
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium">Nome</span>
@@ -195,7 +293,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full gap-2" disabled={loading}>
+            <Button type="submit" className="w-full gap-2" disabled={loading || Boolean(oauthLoading)}>
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : mode === 'login' ? (
@@ -215,7 +313,7 @@ export default function LoginPage() {
             Continuar como visitante
           </Button>
           <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
-            Visitantes usam uma conta guest separada. Não anunciamos OAuth até a integração estar realmente ativa.
+            Visitantes usam uma conta guest separada. O login social aparece somente quando está realmente disponível.
           </p>
         </div>
       </section>

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,7 @@ export async function GET(
   const { id } = await context.params;
 
   const task = await db.task.findFirst({
-    where: { id, userId: user.id, mode: 'omnininja' },
+    where: { id, userId: user.id, mode: { in: ['omnininja', 'chat', 'work', 'codex'] } },
     select: {
       id: true,
       goal: true,
@@ -29,6 +29,10 @@ export async function GET(
           attachmentsJson: true,
           createdAt: true,
         },
+      },
+      artifacts: {
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, kind: true, sizeBytes: true },
       },
     },
   });
@@ -48,6 +52,21 @@ export async function GET(
         return message;
       }
     });
+  const lastAssistantIndex = persistedMessages.findLastIndex((message) => message.role === 'assistant');
+  const generatedFiles = task.artifacts
+    .filter((artifact) => artifact.kind === 'file')
+    .map((artifact) => ({
+      id: artifact.id,
+      kind: 'file',
+      name: artifact.name,
+      size: artifact.sizeBytes,
+      url: `/api/artifacts/${encodeURIComponent(artifact.id)}`,
+    }));
+  const messagesWithArtifacts = persistedMessages.map((message, index) => (
+    index === lastAssistantIndex && generatedFiles.length
+      ? { ...message, media: generatedFiles }
+      : message
+  ));
 
   return NextResponse.json({
     conversation: {
@@ -55,8 +74,8 @@ export async function GET(
       title: task.title,
       status: task.status,
       createdAt: task.createdAt,
-      messages: persistedMessages.some((message) => message.role === 'user')
-        ? persistedMessages
+      messages: messagesWithArtifacts.some((message) => message.role === 'user')
+        ? messagesWithArtifacts
         : [
         {
           id: `user-${task.id}`,
@@ -64,7 +83,7 @@ export async function GET(
           content: task.goal,
           createdAt: task.createdAt,
         },
-        ...persistedMessages,
+        ...messagesWithArtifacts,
       ],
     },
   });

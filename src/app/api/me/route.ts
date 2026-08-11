@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { getCreditBalance } from '@/lib/credits';
 
-// Public capability snapshot for the single OMNINJA product identity.
+// Public capability snapshot for the single OMNININJA product identity.
 // Provider implementation details stay server-side.
 export async function GET() {
   const user = await getCurrentUser();
@@ -19,7 +19,7 @@ export async function GET() {
       bonusCredits: balance.bonusCredits,
       role: user.role,
     },
-    model: openAIReady ? 'OMNINJA' : null,
+    model: openAIReady ? 'OMNININJA' : null,
     capabilities: {
       chat: openAIReady,
       tools: openAIReady,

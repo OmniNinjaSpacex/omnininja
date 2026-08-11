@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { parseJsonRequest } from '@/lib/http-body';
 

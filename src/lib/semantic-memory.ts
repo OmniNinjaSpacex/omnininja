@@ -1,4 +1,4 @@
-import { db } from './db';
+import { db } from '#omninininja/db';
 import { embedText } from './openai-services';
 
 function cosineSimilarity(a: number[], b: number[]): number {

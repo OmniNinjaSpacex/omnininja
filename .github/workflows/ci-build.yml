@@ -33,7 +33,7 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/omnininja_ci?schema=public
       OPENAI_API_KEY: ci-only-placeholder-not-for-production
-      OMNINJA_MODEL: gpt-5.6
+      OMNININJA_MODEL: gpt-5.6
     steps:
       - name: Checkout
         uses: actions/checkout@v4

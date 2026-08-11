@@ -5,9 +5,9 @@ import { Wordmark } from './brand';
 import { useOmni } from '@/lib/store';
 
 const cards = [
-  { icon: Sparkles, title: 'Pesquise que eu resolvo', body: 'O OMNINJA pesquisa, organiza contexto e transforma o pedido em uma entrega útil.' },
+  { icon: Sparkles, title: 'Pesquise que eu resolvo', body: 'O OMNININJA pesquisa, organiza contexto e transforma o pedido em uma entrega útil.' },
   { icon: Braces, title: 'Software sem alternar aba', body: 'Código, arquivos e execução ficam ligados à mesma tarefa e ao mesmo workspace.' },
-  { icon: Globe2, title: 'Navegue quando precisar', body: 'Navegação remota e pesquisa web entram nos bastidores, sem mudar a experiência.' },
+  { icon: Globe2, title: 'Informação atual, sem ruído', body: 'Pesquisa web e fontes entram nos bastidores, sem transformar a conversa em um painel técnico.' },
 ];
 
 export function LandingPage() {
@@ -21,10 +21,13 @@ export function LandingPage() {
 
       <header className="relative z-10 mx-auto flex h-20 w-full max-w-[1420px] items-center border-b border-white/[0.06] px-6 lg:px-10">
         <Wordmark className="mr-auto" />
-        <nav className="hidden items-center gap-8 text-[12px] text-white/50 md:flex">
-          <a href="#capacidades" className="transition-colors hover:text-white">Capacidades</a>
-          <a href="#sistema" className="transition-colors hover:text-white">Sistema</a>
-          <a href="#seguranca" className="transition-colors hover:text-white">Segurança</a>
+        <nav className="hidden items-center gap-6 text-[11px] text-white/50 lg:flex">
+          <a href="/research" className="transition-colors hover:text-white">Pesquisa</a>
+          <a href="/products" className="transition-colors hover:text-white">Produtos</a>
+          <a href="/business" className="transition-colors hover:text-white">Empresas</a>
+          <a href="/developers" className="transition-colors hover:text-white">Desenvolvedores</a>
+          <a href="/safety" className="transition-colors hover:text-white">Segurança</a>
+          <a href="/company" className="transition-colors hover:text-white">Empresa</a>
         </nav>
         <button onClick={openWorkspace} className="ml-8 inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.045] px-4 text-[12px] font-medium text-white/85 transition hover:border-cyan-300/30 hover:bg-cyan-300/[0.06]">
           Abrir workspace
@@ -35,16 +38,16 @@ export function LandingPage() {
         <div className="max-w-[600px]">
           <div className="mb-7 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.24em] text-cyan-300/80">
             <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_16px_rgba(103,232,249,.8)]" />
-            Agentes que pensam, criam e agem
+            Uma IA que pensa, cria e realiza
           </div>
           <h1 className="text-[56px] font-medium leading-[.98] tracking-[-.06em] sm:text-[72px] lg:text-[86px]">
             Uma<br />inteligência.<br />Infinitas<br /><span className="bg-gradient-to-r from-white via-cyan-200 to-[#20a8ff] bg-clip-text text-transparent">habilidades.</span>
           </h1>
           <p className="mt-8 max-w-[540px] text-[14px] leading-7 text-white/48">
-            Converse, pesquise, construa produtos e delegue trabalho completo. O OMNINJA combina raciocínio, navegador, arquivos e execução isolada em uma única experiência.
+            Converse, pesquise, construa produtos e delegue trabalho completo. O OMNININJA combina raciocínio, arquivos, pesquisa e execução hospedada em uma única experiência.
           </p>
           <button onClick={openWorkspace} className="mt-9 inline-flex h-12 items-center gap-3 rounded-xl bg-gradient-to-r from-cyan-200 to-[#22a8ff] px-6 text-[12px] font-semibold text-[#02131e] shadow-[0_10px_40px_rgba(34,168,255,.22)] transition hover:-translate-y-0.5">
-            Entrar no OMNINJA <ArrowRight className="h-4 w-4" />
+            Entrar no OMNININJA <ArrowRight className="h-4 w-4" />
           </button>
           <div className="mt-4 text-[10px] text-white/25">Workspace privado · dados isolados · você controla cada ação sensível</div>
         </div>
@@ -54,17 +57,17 @@ export function LandingPage() {
           <div className="relative overflow-hidden rounded-[24px] border border-cyan-200/10 bg-[#0b1015]/95 shadow-[0_40px_100px_rgba(0,0,0,.55)]">
             <div className="flex h-12 items-center border-b border-white/[0.06] px-4">
               <Wordmark className="origin-left scale-90" />
-              <div className="ml-auto rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 text-[9px] text-white/40">OMNINJA</div>
+              <div className="ml-auto rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 text-[9px] text-white/40">OMNININJA</div>
             </div>
             <div className="grid h-[390px] grid-cols-[145px_1fr_210px]">
               <aside className="border-r border-white/[0.05] p-3">
                 <div className="mb-4 flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-300 text-[#061018]"><Bot className="h-4 w-4" /></div>
-                {['Nova tarefa', 'Agente', 'Buscar', 'Biblioteca'].map((item, index) => (
+                {['Nova tarefa', 'Chat', 'Buscar', 'Biblioteca'].map((item, index) => (
                   <div key={item} className={`mb-1 rounded-lg px-2 py-2 text-[9px] ${index === 0 ? 'bg-white/[0.055] text-white/80' : 'text-white/28'}`}>{item}</div>
                 ))}
               </aside>
               <div className="flex flex-col justify-center px-8">
-                <div className="text-[9px] font-medium uppercase tracking-[.2em] text-cyan-300/60">Agente ativo</div>
+                <div className="text-[9px] font-medium uppercase tracking-[.2em] text-cyan-300/60">OMNININJA</div>
                 <div className="mt-4 font-serif text-[28px] text-white/88">O que posso fazer por você?</div>
                 <div className="mt-5 rounded-2xl border border-cyan-200/15 bg-white/[0.025] p-4">
                   <div className="text-[10px] text-white/27">Crie, pesquise ou execute uma tarefa...</div>
@@ -91,7 +94,7 @@ export function LandingPage() {
             <div className="flex items-center gap-2 text-white/70"><Layers3 className="h-3.5 w-3.5 text-cyan-300" /> ferramentas conectadas</div>
           </div>
           <div className="absolute -bottom-5 left-8 rounded-xl border border-cyan-200/10 bg-[#10161c]/95 px-4 py-3 text-[10px] shadow-2xl">
-            <div className="flex items-center gap-2 text-white/70"><Globe2 className="h-3.5 w-3.5 text-cyan-300" /> navegador real</div>
+            <div className="flex items-center gap-2 text-white/70"><Globe2 className="h-3.5 w-3.5 text-cyan-300" /> pesquisa atualizada</div>
           </div>
         </div>
       </section>
@@ -115,13 +118,37 @@ export function LandingPage() {
       <section id="sistema" className="relative z-10 mx-auto grid w-full max-w-[1420px] gap-8 border-t border-white/[0.06] px-6 py-24 lg:grid-cols-2 lg:px-10">
         <div>
           <div className="text-[10px] uppercase tracking-[.2em] text-cyan-300/60">Sistema</div>
-          <h2 className="mt-4 max-w-xl font-serif text-4xl">Um único agente na frente. Ferramentas especializadas por trás.</h2>
+          <h2 className="mt-4 max-w-xl font-serif text-4xl">Uma única IA na frente. Ferramentas especializadas por trás.</h2>
         </div>
         <div id="seguranca" className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] p-5"><Bot className="h-5 w-5 text-cyan-300" /><div className="mt-7 text-sm">OMNINJA</div><div className="mt-2 text-xs leading-6 text-white/35">Uma identidade pública para chat, tarefas e execução.</div></div>
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] p-5"><Bot className="h-5 w-5 text-cyan-300" /><div className="mt-7 text-sm">OMNININJA</div><div className="mt-2 text-xs leading-6 text-white/35">Uma identidade pública para chat, tarefas e execução.</div></div>
           <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] p-5"><LockKeyhole className="h-5 w-5 text-cyan-300" /><div className="mt-7 text-sm">Execução isolada</div><div className="mt-2 text-xs leading-6 text-white/35">Ambientes de tarefa permanecem separados do servidor principal.</div></div>
         </div>
       </section>
+
+      <footer className="relative z-10 border-t border-white/[0.06]">
+        <div className="mx-auto grid w-full max-w-[1420px] gap-12 px-6 py-16 sm:grid-cols-2 lg:grid-cols-4 lg:px-10">
+          <div className="sm:col-span-2">
+            <Wordmark />
+            <p className="mt-5 max-w-sm text-[11px] leading-6 text-white/28">Uma inteligência para conversar, criar e realizar.</p>
+          </div>
+          <div className="grid content-start gap-3 text-[11px] text-white/42">
+            <a href="/products" className="hover:text-white">Produtos</a>
+            <a href="/research" className="hover:text-white">Pesquisa</a>
+            <a href="/developers" className="hover:text-white">Desenvolvedores</a>
+            <a href="/academy" className="hover:text-white">Academia</a>
+            <a href="/news" className="hover:text-white">Notícias</a>
+          </div>
+          <div className="grid content-start gap-3 text-[11px] text-white/42">
+            <a href="/company" className="hover:text-white">Sobre</a>
+            <a href="/business" className="hover:text-white">Empresas</a>
+            <a href="/security" className="hover:text-white">Privacidade e proteção</a>
+            <a href="/contact" className="hover:text-white">Contato</a>
+            <a href="/terms" className="hover:text-white">Termos</a>
+            <a href="/privacy" className="hover:text-white">Política de privacidade</a>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }

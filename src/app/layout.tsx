@@ -25,11 +25,11 @@ const sourceSerif = Source_Serif_4({
 export const metadata: Metadata = {
   title: "OMNININJA",
   description:
-    "OMNINJA é um agente de IA com pesquisa, navegador, arquivos e execução isolada em um único workspace.",
+    "OMNININJA é uma IA com pesquisa, arquivos e execução hospedada em um único workspace.",
   keywords: [
-    "OmniNinja", "OMNINJA", "AI agent", "agente de IA", "automação", "sandbox", "browser agent",
+    "OMNININJA", "IA", "automação", "pesquisa", "voz", "código", "workspace",
   ],
-  authors: [{ name: "OmniNinja" }],
+  authors: [{ name: "OMNININJA" }],
   openGraph: {
     title: "OMNININJA",
     description: "Uma inteligência. Infinitas habilidades.",

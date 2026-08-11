@@ -2,7 +2,7 @@ import type { OmniNinjaAttachment } from './omnininja-attachments';
 import { isImageAttachment } from './omnininja-attachments';
 import { OPENAI_BASE_URL } from './openai-services';
 
-const OMNINJA_MODEL = process.env.OMNINJA_MODEL || 'gpt-5.6';
+const OMNININJA_MODEL = process.env.OMNININJA_MODEL || 'gpt-5.6';
 
 function requireApiKey(): string {
   const key = process.env.OPENAI_API_KEY?.trim();
@@ -34,7 +34,7 @@ export async function buildAttachmentContext(
     {
       type: 'input_text',
       text: [
-        'Prepare compact private context for the next OMNINJA response.',
+        'Prepare compact private context for the next OMNININJA response.',
         'Analyze every attachment carefully and preserve concrete facts, text, numbers, structure, visible UI details and filenames.',
         'For documents, extract relevant text and tables faithfully.',
         'For images, describe visible content and read legible text.',
@@ -69,7 +69,7 @@ export async function buildAttachmentContext(
       'X-Client-Request-Id': `omnininja-attachments-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     },
     body: JSON.stringify({
-      model: OMNINJA_MODEL,
+      model: OMNININJA_MODEL,
       input: [{ role: 'user', content }],
       max_output_tokens: 5000,
       reasoning: { effort: 'low', context: 'current_turn' },
@@ -87,6 +87,6 @@ export async function buildAttachmentContext(
   }
 
   const text = extractOutputText(payload);
-  if (!text) throw new Error('O OMNINJA não conseguiu ler os anexos.');
+  if (!text) throw new Error('O OMNININJA não conseguiu ler os anexos.');
   return text;
 }

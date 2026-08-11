@@ -3,7 +3,7 @@ import { OPENAI_BASE_URL, OPENAI_SERVICE_MODELS, requireOpenAIKey } from '@/lib/
 import { consumeCredits, CREDIT_COSTS, refundCreditDebit } from '@/lib/credits';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { parseJsonRequest } from '@/lib/http-body';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
           title: prompt.slice(0, 80),
           goal: prompt,
           mode: 'omnininja',
-          model: 'OMNINJA',
+          model: 'OMNININJA',
           status: 'running',
           creditsUsed: CREDIT_COSTS.video_generation,
           startedAt: new Date(),
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
           taskId,
           role: 'user',
           content: prompt,
-          model: 'OMNINJA',
+          model: 'OMNININJA',
         },
       }),
       db.creditTransaction.update({
@@ -142,7 +142,7 @@ export async function POST(req: Request) {
       db.artifact.create({
         data: {
           taskId,
-          name: 'Vídeo gerado pelo OMNINJA',
+          name: 'Vídeo gerado pelo OMNININJA',
           kind: 'openai-video',
           path: videoId,
         },
@@ -153,11 +153,11 @@ export async function POST(req: Request) {
           taskId,
           role: 'assistant',
           content: initialCompleted
-            ? 'Vídeo gerado pelo OMNINJA.'
+            ? 'Vídeo gerado pelo OMNININJA.'
             : initialFailed
               ? 'A geração do vídeo falhou.'
               : 'Vídeo em processamento.',
-          model: 'OMNINJA',
+          model: 'OMNININJA',
         },
       }),
       db.task.update({
@@ -165,7 +165,7 @@ export async function POST(req: Request) {
         data: {
           status: initialCompleted || initialFailed ? initialStatus : 'running',
           summary: initialCompleted
-            ? 'Vídeo gerado pelo OMNINJA.'
+            ? 'Vídeo gerado pelo OMNININJA.'
             : initialFailed
               ? 'A geração do vídeo falhou.'
               : 'Vídeo em processamento.',
@@ -188,7 +188,7 @@ export async function POST(req: Request) {
     progress: payload.progress ?? 0,
     size: payload.size,
     seconds: payload.seconds,
-    model: 'OMNINJA',
+    model: 'OMNININJA',
   });
 }
 
@@ -262,13 +262,13 @@ export async function GET(req: Request) {
           where: { id: artifact.taskId, userId: user.id },
           data: {
             status,
-            summary: completed ? 'Vídeo gerado pelo OMNINJA.' : 'A geração do vídeo falhou.',
+            summary: completed ? 'Vídeo gerado pelo OMNININJA.' : 'A geração do vídeo falhou.',
             finishedAt: new Date(),
           },
         }),
         db.message.updateMany({
           where: { taskId: artifact.taskId, userId: user.id, role: 'assistant' },
-          data: { content: completed ? 'Vídeo gerado pelo OMNINJA.' : 'A geração do vídeo falhou.' },
+          data: { content: completed ? 'Vídeo gerado pelo OMNININJA.' : 'A geração do vídeo falhou.' },
         }),
       ]);
     }
@@ -279,7 +279,7 @@ export async function GET(req: Request) {
       progress: payload.progress ?? 0,
       size: payload.size,
       seconds: payload.seconds,
-      model: 'OMNINJA',
+      model: 'OMNININJA',
     });
   } catch (error) {
     console.error('[video] consulta indisponível', error);
