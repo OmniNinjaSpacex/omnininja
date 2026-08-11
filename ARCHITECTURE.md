@@ -35,7 +35,7 @@ Serviços OpenAI integrados ou preparados:
 - Text-to-speech.
 - Realtime API para voz ao vivo.
 - Sora para geração de vídeo.
-- arquivos gerados por Code Interpreter/Shell entregues por proxy autenticado enquanto o container OpenAI estiver ativo;
+- arquivos gerados pelo executor selecionado (Code Interpreter em Chat; Shell em Work/Codex) entregues por proxy autenticado enquanto o container OpenAI estiver ativo;
 - Computer Use preparado para tarefas visuais quando existir um harness isolado
   de navegador/VM que execute ações e devolva capturas confirmadas.
 

@@ -16,11 +16,18 @@ export const OPENAI_SERVICE_MODELS = {
   embedding: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large',
 } as const;
 
-export function buildOpenAIHostedTools(): any[] {
+export type OpenAIExecutionMode = 'chat' | 'work' | 'codex';
+
+export function buildOpenAIHostedTools(mode: OpenAIExecutionMode = 'chat'): any[] {
+  // OpenAI rejects code_interpreter and hosted shell when both request an
+  // OpenAI-managed container. Keep the capabilities available across the
+  // product while selecting exactly one container execution tool per request.
+  const executionTool = mode === 'chat'
+    ? { type: 'code_interpreter', container: { type: 'auto' } }
+    : { type: 'shell', environment: { type: 'container_auto' } };
   const tools: any[] = [
     { type: 'web_search' },
-    { type: 'code_interpreter', container: { type: 'auto' } },
-    { type: 'shell', environment: { type: 'container_auto' } },
+    executionTool,
   ];
 
   const vectorStoreIds = Array.from(new Set(
