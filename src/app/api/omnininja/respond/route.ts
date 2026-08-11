@@ -10,6 +10,7 @@ import {
   type OmniNinjaWorkspaceMode,
   type RuntimeMessage,
 } from '@/lib/omnininja-runtime';
+import { publicOmniNinjaRuntimeError } from '@/lib/omnininja-runtime-error';
 import {
   normalizeOmniNinjaAttachments,
 } from '@/lib/omnininja-attachments';
@@ -437,7 +438,7 @@ export async function POST(req: Request) {
           send({
             type: 'error',
             taskId,
-            error: 'Não consegui concluir esta resposta. Tente novamente em instantes.',
+            error: publicOmniNinjaRuntimeError(error),
           });
         }
       } finally {

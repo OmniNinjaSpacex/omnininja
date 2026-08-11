@@ -9,6 +9,7 @@ import {
   OPENAI_SERVICE_MODELS,
   requireOpenAIKey,
 } from './openai-services';
+import { withOmniNinjaRuntimeErrorCode } from './omnininja-runtime-error';
 
 export type OmniNinjaEffort = 'low' | 'medium' | 'high';
 export type OmniNinjaWorkspaceMode = 'chat' | 'work' | 'codex';
@@ -59,7 +60,7 @@ function modeInstruction(mode: OmniNinjaWorkspaceMode): string {
     return 'Work mode: take ownership of multi-step objectives, use hosted tools when useful, verify the result, and finish with a clear deliverable and concise status.';
   }
   if (mode === 'codex') {
-    return 'Codex mode: focus on software engineering. Use hosted shell and Code Interpreter for inspection, implementation, builds, and tests; report exactly what was verified.';
+    return 'Codex mode: focus on software engineering. Use hosted shell for inspection, implementation, builds, and tests; report exactly what was verified.';
   }
   return 'Chat mode: prioritize a natural conversation and direct answers. Use tools only when they materially improve accuracy or completion.';
 }
@@ -74,7 +75,10 @@ function instructions(
     'The user experience must feel like a normal high-quality chat, never a tool console.',
     'Continue naturally and preserve relevant context from earlier turns.',
     'Choose private tools automatically only when they materially improve the answer or are required to complete the task.',
-    'Use OpenAI Web Search for fresh information, File Search for configured knowledge bases, Code Interpreter for data analysis, and OpenAI hosted shell for terminal, code, builds, tests, and task files.',
+    'Use OpenAI Web Search for fresh information and File Search for configured knowledge bases.',
+    workspaceMode === 'chat'
+      ? 'For data analysis, math, image inspection, or file generation in Chat, use the enabled Code Interpreter container.'
+      : 'For terminal work, code, builds, tests, data analysis, and task files in Work or Codex, use the enabled OpenAI hosted shell container.',
     'When the user asks for a finished file, create it under /mnt/data and cite the generated file so the product can expose a secure download.',
     'Computer Use requires an isolated browser or VM harness. Never claim visual interaction happened unless a configured harness returned a confirmed screenshot or action result.',
     'Never claim an action happened unless a confirmed tool result proves it.',
@@ -166,7 +170,7 @@ async function requestOpenAI(
       model: OMNININJA_MODEL,
       instructions: instructions(effort, thinkingEnabled, workspaceMode),
       input,
-      tools: buildOpenAIHostedTools(),
+      tools: buildOpenAIHostedTools(workspaceMode),
       tool_choice: 'auto',
       parallel_tool_calls: effort === 'high',
       max_output_tokens: maxOutputTokens(effort),
@@ -183,7 +187,15 @@ async function requestOpenAI(
   const payload = await response.json().catch(() => ({} as any));
   if (!response.ok) {
     const detail = payload?.error?.message || `HTTP ${response.status}`;
-    throw new Error(`OpenAI Responses API: ${detail}`);
+    const error = new Error(`OpenAI Responses API: ${detail}`);
+    const errorType = typeof payload?.error?.type === 'string' ? payload.error.type : '';
+    const errorCode = typeof payload?.error?.code === 'string' ? payload.error.code : '';
+    if (errorType === 'insufficient_quota' || errorCode === 'insufficient_quota') {
+      throw withOmniNinjaRuntimeErrorCode(error, 'openai_insufficient_quota');
+    } else if (response.status === 429) {
+      throw withOmniNinjaRuntimeErrorCode(error, 'openai_rate_limit');
+    }
+    throw withOmniNinjaRuntimeErrorCode(error, 'openai_request_failed');
   }
   return payload as OpenAIResponse;
 }
