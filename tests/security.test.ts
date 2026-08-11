@@ -11,6 +11,10 @@ import {
 import { checkRateLimit } from '../src/lib/rate-limit.ts';
 import { openAISafetyIdentifier } from '../src/lib/openai-safety.ts';
 import { parseJsonRequest } from '../src/lib/http-body.ts';
+import {
+  readPublicApiError,
+  safePublicApiError,
+} from '../src/lib/public-api-error.ts';
 
 test('browser navigation rejects local and private destinations', () => {
   for (const hostname of [
@@ -87,4 +91,23 @@ test('JSON request parsing enforces a streaming byte limit', async () => {
   }), 32);
   assert.equal(oversized.ok, false);
   if (!oversized.ok) assert.equal(oversized.response.status, 413);
+});
+
+test('public API errors never expose infrastructure HTML', async () => {
+  const fallback = 'Serviço temporariamente indisponível.';
+  const htmlResponse = new Response('<!DOCTYPE html><html><body>internal stack</body></html>', {
+    status: 500,
+    headers: { 'content-type': 'text/html' },
+  });
+  assert.equal(await readPublicApiError(htmlResponse, fallback), fallback);
+  assert.equal(safePublicApiError('<script>internal</script>', fallback), fallback);
+
+  const jsonResponse = Response.json(
+    { error: 'Tente novamente em instantes.' },
+    { status: 503 },
+  );
+  assert.equal(
+    await readPublicApiError(jsonResponse, fallback),
+    'Tente novamente em instantes.',
+  );
 });
