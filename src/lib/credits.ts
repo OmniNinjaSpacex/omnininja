@@ -1,5 +1,5 @@
 // OmniNinja — Credits & billing (Seção 11.4)
-import { db } from './db';
+import { db } from '#omninininja/db';
 
 export const TIER_CONFIG = {
   free: { label: 'Free', monthlyCredits: 0, dailyCredits: 300, bonus: 1000, parallelTasks: 1, price: 0 },

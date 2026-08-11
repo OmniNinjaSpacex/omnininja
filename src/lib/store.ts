@@ -6,6 +6,7 @@ export type { AgentEvent } from '@/lib/orchestrator';
 
 export type View = 'landing' | 'workspace';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
+export type WorkspaceMode = 'chat' | 'work' | 'codex';
 
 export interface MessageAttachment {
   id: string;
@@ -62,6 +63,8 @@ interface OmniState {
 
   reasoningEffort: ReasoningEffort;
   setReasoningEffort: (effort: ReasoningEffort) => void;
+  workspaceMode: WorkspaceMode;
+  setWorkspaceMode: (mode: WorkspaceMode) => void;
   thinkingEnabled: boolean;
   setThinkingEnabled: (enabled: boolean) => void;
   activeProjectId: string | null;
@@ -90,6 +93,8 @@ export const useOmni = create<OmniState>((set) => ({
 
   reasoningEffort: 'medium',
   setReasoningEffort: (reasoningEffort) => set({ reasoningEffort }),
+  workspaceMode: 'chat',
+  setWorkspaceMode: (workspaceMode) => set({ workspaceMode }),
   thinkingEnabled: true,
   setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
   activeProjectId: null,

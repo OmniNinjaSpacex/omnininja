@@ -1,18 +1,24 @@
 # OMNININJA
 
-OmniNinja é uma plataforma de IA conversacional com uma única identidade pública: **OMNINJA**.
+OmniNinja é uma plataforma de IA conversacional com uma única identidade pública: **OMNININJA**.
 
-A experiência é um chat simples e limpo. Por trás, o OMNINJA pode pesquisar, analisar arquivos, gerar mídia, usar navegador remoto e executar tarefas em workspace Linux sem transformar a interface em um console de ferramentas.
+A experiência é um chat simples e limpo. Por trás, o OMNININJA pode pesquisar, analisar arquivos, gerar mídia e executar tarefas em ambientes isolados sem transformar a interface em um console de ferramentas.
 
 Leia também [`ARCHITECTURE.md`](./ARCHITECTURE.md). Esse arquivo é a fonte de verdade para continuar o projeto no ChatGPT Work/Codex.
 
+A auditoria entre recursos oficiais da OpenAI e a implementação está em [`docs/OPENAI_CAPABILITY_MATRIX.md`](./docs/OPENAI_CAPABILITY_MATRIX.md).
+
 ## Arquitetura atual
 
-- **UI:** Next.js, interface híbrida ChatGPT + identidade própria OMNINJA.
+- **UI:** Next.js, interface híbrida ChatGPT + identidade própria OMNININJA.
 - **Modelo privado:** OpenAI, com GPT-5.6 como padrão configurável.
 - **Orquestração:** Responses API com ferramentas internas automáticas.
+- **Experiências:** Chat, Work e Codex sob a mesma identidade OMNININJA.
 - **Pesquisa:** OpenAI Web Search.
+- **Pesquisa profunda:** perfil Work + esforço alto + Web Search com fontes.
 - **Dados/código:** OpenAI Code Interpreter quando apropriado.
+- **Terminal:** OpenAI Shell hospedado em container efêmero.
+- **Entregáveis:** arquivos criados em containers OpenAI aparecem como downloads autenticados na conversa.
 - **Arquivos:** anexos + File Search/Vector Stores quando configurados.
 - **Imagem:** OpenAI Image Generation.
 - **Vídeo:** OpenAI Sora.
@@ -20,12 +26,12 @@ Leia também [`ARCHITECTURE.md`](./ARCHITECTURE.md). Esse arquivo é a fonte de 
 - **Memória:** OpenAI Embeddings + PostgreSQL.
 - **Segurança de conteúdo:** omni-moderation-latest como camada adicional.
 - **Banco:** PostgreSQL + Prisma.
-- **Navegador real:** Browserless.
-- **Workspace Linux:** AI Lab/LXD remoto por tarefa.
+- **Interação visual:** OpenAI Computer Use, somente quando um harness isolado e validado estiver configurado.
+- **Workspace persistente:** AI Lab/LXD remoto por tarefa, opcional.
 
 ## Princípio de produto
 
-Publicamente existe apenas **OMNINJA**. OpenAI, Browserless, AI Lab e nomes de ferramentas são detalhes internos.
+Publicamente existe apenas **OMNININJA**. OpenAI, AI Lab e nomes de ferramentas são detalhes internos.
 
 O navegador nunca deve receber prompts internos, selectors, comandos shell, stdout/stderr, secrets ou chain-of-thought. Ele recebe apenas estados humanos curtos e os resultados necessários.
 
@@ -36,12 +42,16 @@ O composer suporta:
 - anexar câmera, fotos e arquivos;
 - ditar por microfone;
 - voz ao vivo;
-- criar imagens;
+- criar ou editar imagens usando anexos como referência;
 - criar vídeos;
 - escolher esforço Baixo/Médio/Alto;
 - ligar/desligar pensamento.
 
 Resultados de imagem e vídeo aparecem dentro da própria conversa. Respostas de texto podem ser lidas em voz alta.
+
+## Site institucional
+
+Além do workspace, a aplicação publica páginas originais da marca OMNININJA em `/products`, `/research`, `/business`, `/developers`, `/safety`, `/security`, `/company`, `/news`, `/academy`, `/contact`, `/privacy` e `/terms`. Elas seguem a mesma identidade visual sem copiar textos, ativos ou código de terceiros.
 
 ## Hospedagem pública
 
@@ -63,7 +73,7 @@ npm run db:migrate:deploy
 npm run dev
 ```
 
-Preencha no mínimo `DATABASE_URL` e `OPENAI_API_KEY` em `.env.local`. Browserless e AI Lab são opcionais para chat simples, mas as respectivas ferramentas ficam indisponíveis quando não configuradas. O shell e os arquivos permanecem fail-closed em produção se o sandbox seguro não estiver disponível.
+Preencha no mínimo `DATABASE_URL` e `OPENAI_API_KEY` em `.env.local`. Web Search, Code Interpreter e Shell são hospedados pela OpenAI. O AI Lab é opcional e permanece fail-closed quando não configurado.
 
 ## Validação obrigatória
 
@@ -114,9 +124,27 @@ Obrigatórias para o núcleo:
 
 Para execução autônoma:
 
-- `BROWSERLESS_API_KEY` e `BROWSERLESS_REGION` para navegação real;
-- `OMNININJA_SANDBOX_PROVIDER=ailab`, `AILAB_BASE_URL` e `AILAB_API_TOKEN` para execução remota recomendada;
+- Web Search, Code Interpreter e Shell usam `OPENAI_API_KEY`;
+- `OMNININJA_SANDBOX_PROVIDER=ailab`, `AILAB_BASE_URL` e `AILAB_API_TOKEN` habilitam workspaces persistentes remotos;
 - ou sandbox local nível 2 (`unshare` + `proot`) em um host dedicado.
+
+Computer Use exige um harness separado de navegador ou VM isolados para
+executar cada ação e devolver capturas ao modelo. Ele não é anunciado como ativo
+até que esse executor esteja configurado e validado. Ações autenticadas,
+financeiras, destrutivas ou de alto impacto exigem confirmação humana.
+
+Para login social, configure o par de credenciais server-only:
+
+- `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`;
+
+Cadastre no provedor os callbacks HTTPS exatos do domínio publicado:
+
+- `/api/auth/oauth/google/callback`;
+
+O botão aparece somente quando o par de credenciais está configurado. O fluxo usa código de autorização, estado de uso único persistido no PostgreSQL e PKCE/OIDC. Tokens do Google não são persistidos.
+
+O usuário pode escolher a mesma conta Google que usa no ChatGPT, mas esse login
+não acessa nem vincula sua assinatura, conversas ou workspace do ChatGPT.
 
 Todos os secrets são server-only. Não prefixe secrets com `NEXT_PUBLIC_`.
 

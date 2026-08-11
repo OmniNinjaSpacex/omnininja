@@ -1,9 +1,17 @@
-// OmniNinja — PostgreSQL schema
-// Product model is always OMNINJA; OpenAI is the private model provider.
-// Browserless and AI Lab are execution infrastructure for Manus-style tasks.
+// OMNININJA — PostgreSQL schema
+// Product model is always OMNININJA; OpenAI is the private model provider.
+// AI Lab is optional isolated infrastructure for persistent execution tasks.
 
 generator client {
   provider = "prisma-client-js"
+}
+
+// Cloudflare/Sites uses the JavaScript query engine with Neon's edge driver.
+// The default generator above remains the source for Node.js and Docker.
+generator edgeClient {
+  provider   = "prisma-client-js"
+  output     = "../src/generated/prisma-edge"
+  engineType = "client"
 }
 
 datasource db {
@@ -21,7 +29,7 @@ model User {
   credits       Int      @default(300)
   bonusCredits  Int      @default(1000)
   role          String   @default("user")
-  defaultModel  String   @default("OMNINJA")
+  defaultModel  String   @default("OMNININJA")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -31,6 +39,33 @@ model User {
   creditTxns    CreditTransaction[]
   sessions      Session[]
   scheduled     ScheduledTask[]
+  oauthAccounts OAuthAccount[]
+}
+
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  providerAccountId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model OAuthState {
+  id           String   @id
+  provider     String
+  codeVerifier String
+  nonce        String?
+  returnTo     String   @default("/")
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
 }
 
 model Session {
@@ -68,8 +103,8 @@ model Task {
   project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   title       String
   goal        String
-  mode        String   @default("omnininja")
-  model       String   @default("OMNINJA")
+  mode        String   @default("chat")
+  model       String   @default("OMNININJA")
   status      String   @default("queued")
   summary     String?
   creditsUsed Int      @default(0)
@@ -136,8 +171,8 @@ model ScheduledTask {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   prompt      String
-  mode        String   @default("omnininja")
-  model       String   @default("OMNINJA")
+  mode        String   @default("work")
+  model       String   @default("OMNININJA")
   schedule    String
   enabled     Boolean  @default(true)
   lastRunAt   DateTime?

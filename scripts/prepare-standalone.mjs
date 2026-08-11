@@ -20,12 +20,3 @@ if (existsSync(join(root, 'public'))) {
     force: true,
   });
 }
-
-const playwrightCore = join(root, 'node_modules', 'playwright-core');
-if (existsSync(playwrightCore)) {
-  mkdirSync(join(standalone, 'node_modules'), { recursive: true });
-  cpSync(playwrightCore, join(standalone, 'node_modules', 'playwright-core'), {
-    recursive: true,
-    force: true,
-  });
-}

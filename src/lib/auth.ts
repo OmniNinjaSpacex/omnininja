@@ -1,5 +1,5 @@
 // OmniNinja — production auth (email/password + isolated guest sessions)
-import { db } from './db';
+import { db } from '#omninininja/db';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { promisify } from 'util';
@@ -70,7 +70,7 @@ async function createGuestUser() {
       credits: 50,
       bonusCredits: 0,
       role: 'user',
-      defaultModel: 'OMNINJA',
+      defaultModel: 'OMNININJA',
     },
   });
 
@@ -131,7 +131,7 @@ export async function registerUser(email: string, password: string, name?: strin
       credits: 300,
       bonusCredits: 0,
       role: 'user',
-      defaultModel: 'OMNINJA',
+      defaultModel: 'OMNININJA',
     },
   });
 

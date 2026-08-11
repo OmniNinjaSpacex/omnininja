@@ -4,7 +4,8 @@ import { consumeCredits, CREDIT_COSTS, refundCreditDebit } from '@/lib/credits';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { openAISafetyIdentifier } from '@/lib/openai-safety';
 import { parseJsonRequest } from '@/lib/http-body';
-import { db } from '@/lib/db';
+import { isImageAttachment, normalizeOmniNinjaAttachments } from '@/lib/omnininja-attachments';
+import { db } from '#omninininja/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,11 +22,12 @@ export async function POST(req: Request) {
   const user = await getCurrentUser();
   const rateLimit = checkRateLimit(req, 'image-generation', 8, 60_000, user.id);
   if (!rateLimit.ok) return rateLimitResponse(rateLimit.retryAfterSeconds);
-  const parsedRequest = await parseJsonRequest(req, 16 * 1024);
+  const parsedRequest = await parseJsonRequest(req, 8 * 1024 * 1024);
   if (!parsedRequest.ok) return parsedRequest.response;
   const body = parsedRequest.body;
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 5000) : '';
   if (!prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
+  const referenceImage = normalizeOmniNinjaAttachments(body.attachments).find(isImageAttachment);
 
   const requestedProjectId = typeof body.projectId === 'string' ? body.projectId.trim().slice(0, 200) : '';
   const project = requestedProjectId
@@ -52,7 +54,7 @@ export async function POST(req: Request) {
           title: prompt.slice(0, 80),
           goal: prompt,
           mode: 'omnininja',
-          model: 'OMNINJA',
+          model: 'OMNININJA',
           status: 'running',
           creditsUsed: CREDIT_COSTS.image_generation,
           startedAt: new Date(),
@@ -64,7 +66,15 @@ export async function POST(req: Request) {
           taskId,
           role: 'user',
           content: prompt,
-          model: 'OMNINJA',
+          model: 'OMNININJA',
+          attachmentsJson: referenceImage
+            ? JSON.stringify([{
+                id: referenceImage.id,
+                name: referenceImage.name,
+                mimeType: referenceImage.mimeType,
+                size: referenceImage.size,
+              }])
+            : null,
         },
       }),
       db.creditTransaction.update({
@@ -91,7 +101,18 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: OPENAI_SERVICE_MODELS.chat,
-        input: `Crie a imagem solicitada pelo usuário. Preserve fielmente a intenção e não adicione texto que não foi pedido.\n\nPedido: ${prompt}`,
+        input: [{
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: referenceImage
+                ? `Edite a imagem enviada conforme o pedido. Preserve os elementos que não precisam mudar e não adicione texto que não foi pedido.\n\nPedido: ${prompt}`
+                : `Crie a imagem solicitada pelo usuário. Preserve fielmente a intenção e não adicione texto que não foi pedido.\n\nPedido: ${prompt}`,
+            },
+            ...(referenceImage ? [{ type: 'input_image', image_url: referenceImage.dataUrl, detail: 'high' }] : []),
+          ],
+        }],
         tools: [{ type: 'image_generation', action: 'auto', quality: 'auto', size: 'auto', background: 'auto' }],
         tool_choice: { type: 'image_generation' },
         safety_identifier: openAISafetyIdentifier(user.id),
@@ -136,7 +157,7 @@ export async function POST(req: Request) {
       db.artifact.create({
         data: {
           taskId,
-          name: 'Imagem gerada pelo OMNINJA',
+          name: referenceImage ? 'Imagem editada pelo OMNININJA' : 'Imagem gerada pelo OMNININJA',
           kind: 'openai-image',
           path: imageId,
           sizeBytes: Math.min(2_147_483_647, Math.floor(image.result.length * 0.75)),
@@ -147,15 +168,15 @@ export async function POST(req: Request) {
           userId: user.id,
           taskId,
           role: 'assistant',
-          content: 'Imagem gerada pelo OMNINJA.',
-          model: 'OMNINJA',
+          content: referenceImage ? 'Imagem editada pelo OMNININJA.' : 'Imagem gerada pelo OMNININJA.',
+          model: 'OMNININJA',
         },
       }),
       db.task.update({
         where: { id: taskId },
         data: {
           status: 'completed',
-          summary: 'Imagem gerada pelo OMNINJA.',
+          summary: referenceImage ? 'Imagem editada pelo OMNININJA.' : 'Imagem gerada pelo OMNININJA.',
           finishedAt: new Date(),
         },
       }),
@@ -170,12 +191,12 @@ export async function POST(req: Request) {
 
   return Response.json({
     taskId,
-    model: 'OMNINJA',
+    model: 'OMNININJA',
     media: {
       id: imageId,
       kind: 'image',
       mimeType: 'image/png',
-      name: 'Imagem gerada pelo OMNINJA',
+      name: referenceImage ? 'Imagem editada pelo OMNININJA' : 'Imagem gerada pelo OMNININJA',
       url: `data:image/png;base64,${image.result}`,
       status: 'completed',
       progress: 100,

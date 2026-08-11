@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 
 // Credit balance + recent transactions for the current user.
 export async function GET() {

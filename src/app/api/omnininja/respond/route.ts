@@ -1,12 +1,13 @@
-// Unified OMNINJA response endpoint.
+// Unified OMNININJA response endpoint.
 // One conversation surface; tools, providers and private reasoning stay server-side.
 
 import { getCurrentUser } from '@/lib/auth';
 import { consumeCredits, CREDIT_COSTS, refundCreditDebit } from '@/lib/credits';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 import {
   runOmniNinjaRuntime,
   type OmniNinjaEffort,
+  type OmniNinjaWorkspaceMode,
   type RuntimeMessage,
 } from '@/lib/omnininja-runtime';
 import {
@@ -15,7 +16,6 @@ import {
 import { buildAttachmentContext } from '@/lib/omnininja-attachment-context';
 import { buildSemanticMemoryContext } from '@/lib/semantic-memory';
 import { moderateText } from '@/lib/openai-services';
-import { finalizeWorkspace } from '@/lib/shell-agent';
 import type { AgentEvent } from '@/lib/orchestrator';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { openAISafetyIdentifier } from '@/lib/openai-safety';
@@ -28,6 +28,10 @@ const MAX_REQUEST_BYTES = 40 * 1024 * 1024;
 
 function normalizeEffort(value: unknown): OmniNinjaEffort {
   return value === 'low' || value === 'high' ? value : 'medium';
+}
+
+function normalizeWorkspaceMode(value: unknown): OmniNinjaWorkspaceMode {
+  return value === 'work' || value === 'codex' ? value : 'chat';
 }
 
 function creditCost(effort: OmniNinjaEffort, thinkingEnabled: boolean): number {
@@ -46,13 +50,7 @@ function publicActivityLabel(event: AgentEvent): string {
   if (instruction === 'file_search') return 'Consultando sua base de conhecimento…';
   if (instruction === 'code_interpreter') return 'Analisando dados…';
   if (instruction === 'image_generation') return 'Criando imagem…';
-  if (instruction === 'browser_navigate') return 'Abrindo uma página…';
-  if (instruction === 'browser_get_text') return 'Analisando uma página…';
-  if (instruction === 'browser_screenshot') return 'Verificando visualmente…';
-  if (instruction === 'browser_click' || instruction === 'browser_type') return 'Interagindo com uma página…';
-  if (instruction === 'shell_exec') return 'Executando e verificando…';
-  if (instruction === 'file_read' || instruction === 'file_list') return 'Analisando arquivos…';
-  if (instruction === 'file_write') return 'Preparando arquivos…';
+  if (instruction === 'hosted_shell') return 'Executando em ambiente isolado…';
   return 'Trabalhando na tarefa…';
 }
 
@@ -66,7 +64,7 @@ function publicActivityEvent(event: AgentEvent): AgentEvent | null {
       type: 'STEP_STARTED',
       taskId: event.taskId,
       stepId: event.stepId,
-      agent: 'OMNINJA',
+      agent: 'OMNININJA',
       instruction: publicActivityLabel(event),
       ts: event.ts,
     };
@@ -99,7 +97,7 @@ export async function POST(req: Request) {
 
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return Response.json(
-      { error: 'OMNINJA indisponível neste deploy.' },
+      { error: 'OMNININJA indisponível neste deploy.' },
       { status: 503 },
     );
   }
@@ -128,6 +126,7 @@ export async function POST(req: Request) {
 
   const originalUserText = messages[lastUserIndex].content;
   const effort = normalizeEffort(body.effort);
+  const workspaceMode = normalizeWorkspaceMode(body.workspaceMode);
   const thinkingEnabled = body.thinkingEnabled !== false;
   const attachments = normalizeOmniNinjaAttachments(body.attachments);
   const requestedProjectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
@@ -209,8 +208,8 @@ export async function POST(req: Request) {
           projectId: project?.id,
           title: originalUserText.slice(0, 80),
           goal: originalUserText,
-          mode: 'omnininja',
-          model: 'OMNINJA',
+          mode: workspaceMode,
+          model: 'OMNININJA',
           status: 'running',
           stepsTotal: effort === 'high' ? 30 : effort === 'medium' ? 14 : 6,
           creditsUsed: cost,
@@ -223,7 +222,7 @@ export async function POST(req: Request) {
           taskId,
           role: 'user',
           content: originalUserText,
-          model: 'OMNINJA',
+          model: 'OMNININJA',
           embeddingJson: memory.queryEmbedding.length ? JSON.stringify(memory.queryEmbedding) : null,
           attachmentsJson: attachments.length
             ? JSON.stringify(attachments.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size })))
@@ -277,22 +276,40 @@ export async function POST(req: Request) {
         send({
           type: 'start',
           taskId,
-          model: 'OMNINJA',
+          model: 'OMNININJA',
           effort,
+          workspaceMode,
           thinkingEnabled,
           attachments: attachments.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size })),
           credits: consume.remaining,
         });
 
-        const finalText = await runOmniNinjaRuntime({
+        const runtimeResult = await runOmniNinjaRuntime({
           messages,
           effort,
           thinkingEnabled,
+          workspaceMode,
           taskId,
           onEvent,
           signal: runtimeAbort.signal,
           safetyIdentifier,
         });
+        const finalText = runtimeResult.text;
+
+        const artifactRows = runtimeResult.artifacts.length
+          ? await db.$transaction(
+              runtimeResult.artifacts.map((artifact) => db.artifact.create({
+                data: {
+                  taskId,
+                  name: artifact.name,
+                  kind: artifact.kind,
+                  path: artifact.path,
+                  sizeBytes: artifact.sizeBytes,
+                },
+                select: { id: true, name: true, sizeBytes: true },
+              })),
+            ).catch(() => [])
+          : [];
 
         if (persistedEvents.length > 0) {
           await db.eventRow.createMany({
@@ -306,7 +323,7 @@ export async function POST(req: Request) {
             taskId,
             role: 'assistant',
             content: finalText,
-            model: 'OMNINJA',
+            model: 'OMNININJA',
           },
         });
 
@@ -322,10 +339,22 @@ export async function POST(req: Request) {
         for (const delta of streamChunks(finalText)) {
           send({ type: 'delta', taskId, delta });
         }
-        send({ type: 'final', taskId, text: finalText, model: 'OMNINJA' });
-        send({ type: 'done', taskId, model: 'OMNINJA' });
+        send({
+          type: 'final',
+          taskId,
+          text: finalText,
+          model: 'OMNININJA',
+          media: artifactRows.map((artifact) => ({
+            id: artifact.id,
+            kind: 'file',
+            name: artifact.name,
+            size: artifact.sizeBytes,
+            url: `/api/artifacts/${encodeURIComponent(artifact.id)}`,
+          })),
+        });
+        send({ type: 'done', taskId, model: 'OMNININJA' });
       } catch (error: any) {
-        const internalMessage = error?.message || 'Falha no OMNINJA';
+        const internalMessage = error?.message || 'Falha no OMNININJA';
         const cancelled = runtimeAbort.signal.aborted;
 
         if (persistedEvents.length > 0) {
@@ -351,7 +380,6 @@ export async function POST(req: Request) {
           });
         }
       } finally {
-        await finalizeWorkspace(taskId).catch(() => {});
         req.signal.removeEventListener('abort', abortRuntime);
         if (streamOpen) {
           try {

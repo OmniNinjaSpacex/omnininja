@@ -1,4 +1,4 @@
-// Shared OMNINJA event contracts.
+// Shared OMNININJA event contracts.
 // Detailed events are server-side implementation data; the public chat receives
 // only sanitized progress states from /api/omnininja/respond.
 

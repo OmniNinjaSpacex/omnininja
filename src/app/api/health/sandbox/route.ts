@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ailabHealth } from '@/lib/ailab-sandbox';
-import { sandboxHealth } from '@/lib/sandbox';
-import { getSandboxProvider } from '@/lib/shell-agent';
+import { sandboxHealth } from '#omninininja/sandbox';
+import { getSandboxProvider } from '#omninininja/shell-agent';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
