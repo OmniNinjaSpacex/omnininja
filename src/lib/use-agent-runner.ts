@@ -62,6 +62,7 @@ export function useAgentRunner() {
 
     const store = useOmni.getState();
     const projectId = store.activeProjectId;
+    const conversationId = store.activeConversationId;
     const workspaceMode = store.workspaceMode;
     const userMessage: ChatMessage = {
       id: uid(),
@@ -120,6 +121,7 @@ export function useAgentRunner() {
           throw new Error(data?.error || `Falha ao gerar imagem (HTTP ${response.status})`);
         }
         if (typeof data.taskId === 'string') {
+          useOmni.getState().setActiveConversationId(data.taskId);
           const current = useOmni.getState().currentTask;
           if (current) useOmni.getState().setCurrentTask({ ...current, id: data.taskId });
         }
@@ -145,6 +147,7 @@ export function useAgentRunner() {
           throw new Error(created?.error || `Falha ao iniciar vídeo (HTTP ${create.status})`);
         }
         if (typeof created.taskId === 'string') {
+          useOmni.getState().setActiveConversationId(created.taskId);
           const current = useOmni.getState().currentTask;
           if (current) useOmni.getState().setCurrentTask({ ...current, id: created.taskId });
         }
@@ -207,9 +210,11 @@ export function useAgentRunner() {
         thinkingEnabled,
         attachments,
         projectId,
+        conversationId,
         workspaceMode,
         (event) => useOmni.getState().appendEvent(event),
         (serverTaskId) => {
+          useOmni.getState().setActiveConversationId(serverTaskId);
           const current = useOmni.getState().currentTask;
           if (current) useOmni.getState().setCurrentTask({ ...current, id: serverTaskId });
         },
@@ -255,6 +260,7 @@ async function streamOmniNinjaResponse(
   thinkingEnabled: boolean,
   attachments: OmniNinjaAttachment[],
   projectId: string | null,
+  conversationId: string | null,
   workspaceMode: WorkspaceMode,
   onActivity: (event: AgentEvent) => void,
   onStart: (taskId: string) => void,
@@ -264,7 +270,15 @@ async function streamOmniNinjaResponse(
   const response = await fetch('/api/omnininja/respond', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, effort, thinkingEnabled, attachments, projectId, workspaceMode }),
+    body: JSON.stringify({
+      messages,
+      effort,
+      thinkingEnabled,
+      attachments,
+      projectId,
+      conversationId,
+      workspaceMode,
+    }),
     signal,
   });
 

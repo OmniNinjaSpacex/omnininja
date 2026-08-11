@@ -20,6 +20,7 @@ import type { AgentEvent } from '@/lib/orchestrator';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 import { openAISafetyIdentifier } from '@/lib/openai-safety';
 import { parseJsonRequest } from '@/lib/http-body';
+import { buildRuntimeConversationHistory } from '@/lib/conversation-history';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
   if (!parsedRequest.ok) return parsedRequest.response;
   const body = parsedRequest.body;
   const incoming = Array.isArray(body.messages) ? body.messages : [];
-  const messages: RuntimeMessage[] = incoming
+  let messages: RuntimeMessage[] = incoming
     .filter(
       (message: any) =>
         (message?.role === 'user' || message?.role === 'assistant') &&
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
       content: message.content.trim(),
     }));
 
-  const lastUserIndex = messages.map((message) => message.role).lastIndexOf('user');
+  let lastUserIndex = messages.map((message) => message.role).lastIndexOf('user');
   if (lastUserIndex < 0) {
     return Response.json({ error: 'messages required' }, { status: 400 });
   }
@@ -139,6 +140,50 @@ export async function POST(req: Request) {
   if (requestedProjectId && !project) {
     return Response.json({ error: 'Projeto não encontrado.' }, { status: 404 });
   }
+
+  const requestedConversationId = typeof body.conversationId === 'string'
+    ? body.conversationId.trim().slice(0, 200)
+    : '';
+  const existingConversation = requestedConversationId
+    ? await db.task.findFirst({
+        where: {
+          id: requestedConversationId,
+          userId: user.id,
+          mode: { in: ['omnininja', 'chat', 'work', 'codex'] },
+        },
+        select: {
+          id: true,
+          projectId: true,
+          status: true,
+          messages: {
+            where: { role: { in: ['user', 'assistant'] } },
+            orderBy: { createdAt: 'desc' },
+            take: 39,
+            select: { role: true, content: true },
+          },
+        },
+      })
+    : null;
+
+  if (requestedConversationId && !existingConversation) {
+    return Response.json({ error: 'Conversa não encontrada.' }, { status: 404 });
+  }
+  if (existingConversation?.status === 'running') {
+    return Response.json({ error: 'Esta conversa já está respondendo.' }, { status: 409 });
+  }
+  if (existingConversation && existingConversation.projectId !== (project?.id ?? null)) {
+    return Response.json({ error: 'A conversa pertence a outro projeto.' }, { status: 409 });
+  }
+
+  if (existingConversation) {
+    messages = buildRuntimeConversationHistory(
+      [...existingConversation.messages].reverse(),
+      originalUserText,
+      40,
+    );
+    lastUserIndex = messages.length - 1;
+  }
+
   const cost = creditCost(effort, thinkingEnabled);
   const consume = await consumeCredits(user.id, cost, 'omnininja_response');
 
@@ -198,24 +243,40 @@ export async function POST(req: Request) {
     };
   }
 
-  const taskId = crypto.randomUUID();
+  const taskId = existingConversation?.id ?? crypto.randomUUID();
   try {
+    const taskMutation = existingConversation
+      ? db.task.update({
+          where: { id: taskId },
+          data: {
+            mode: workspaceMode,
+            status: 'running',
+            summary: null,
+            stepsTotal: effort === 'high' ? 30 : effort === 'medium' ? 14 : 6,
+            stepsDone: 0,
+            creditsUsed: { increment: cost },
+            startedAt: new Date(),
+            finishedAt: null,
+          },
+        })
+      : db.task.create({
+          data: {
+            id: taskId,
+            userId: user.id,
+            projectId: project?.id,
+            title: originalUserText.slice(0, 80),
+            goal: originalUserText,
+            mode: workspaceMode,
+            model: 'OMNININJA',
+            status: 'running',
+            stepsTotal: effort === 'high' ? 30 : effort === 'medium' ? 14 : 6,
+            creditsUsed: cost,
+            startedAt: new Date(),
+          },
+        });
+
     await db.$transaction([
-      db.task.create({
-        data: {
-          id: taskId,
-          userId: user.id,
-          projectId: project?.id,
-          title: originalUserText.slice(0, 80),
-          goal: originalUserText,
-          mode: workspaceMode,
-          model: 'OMNININJA',
-          status: 'running',
-          stepsTotal: effort === 'high' ? 30 : effort === 'medium' ? 14 : 6,
-          creditsUsed: cost,
-          startedAt: new Date(),
-        },
-      }),
+      taskMutation,
       db.message.create({
         data: {
           userId: user.id,

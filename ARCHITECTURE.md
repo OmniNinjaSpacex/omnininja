@@ -45,7 +45,11 @@ Não reintroduzir Claude, Gemini, Kimi, Grok, DeepSeek, GLM, Qwen, MiniMax, Nemo
 
 A única superfície conversacional de execução é o fluxo unificado de `/api/omnininja/respond` + `src/lib/omnininja-runtime.ts`.
 
-Esse endpoint cria uma `Task`, persiste mensagens e eventos, debita créditos de forma atômica e transmite somente estados sanitizados por SSE. Geração de imagem, vídeo e voz usa rotas multimodais dedicadas para evitar transportar payloads binários dentro do streaming textual.
+Esse endpoint cria uma `Task` para uma conversa nova e reutiliza essa mesma
+thread nas mensagens seguintes. Cada turno persiste mensagens e eventos, debita
+créditos de forma atômica e transmite somente estados sanitizados por SSE.
+Geração de imagem, vídeo e voz usa rotas multimodais dedicadas para evitar
+transportar payloads binários dentro do streaming textual.
 
 Arquitetura legada removida e que não deve ser recriada:
 
@@ -105,6 +109,8 @@ As rotas institucionais atuais são `/products`, `/research`, `/business`, `/dev
 - no runtime Sites/Workerd, cada requisição recebe seu próprio Prisma Client;
   conexões ou promessas de I/O nunca são reutilizadas globalmente entre requisições;
 - histórico de mensagens e tarefas por usuário;
+- conversas são threads contínuas, pesquisáveis, renomeáveis, fixáveis,
+  excluíveis e podem ser ramificadas sem alterar a thread original;
 - projetos vinculam tarefas sem criar outra identidade de agente;
 - embeddings de mensagens para recuperar contexto antigo relevante;
 - anexos são processados no backend e apenas seus metadados seguros são preservados no histórico;

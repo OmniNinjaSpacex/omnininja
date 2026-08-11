@@ -17,7 +17,7 @@ Status:
 | --- | --- | --- | --- |
 | Chat multimodal | Ativo | Chat único com texto, imagens, arquivos e memória, sem seletor público de provedor. | [Use ChatGPT](https://learn.chatgpt.com/docs/use-chatgpt) |
 | Chat / Work / Codex | Ativo | Três modos de comportamento sob a mesma identidade OMNININJA. | [ChatGPT Work](https://learn.chatgpt.com/docs/get-started-with-work), [Codex cloud](https://learn.chatgpt.com/docs/cloud) |
-| Projetos e conversas | Ativo | Projetos, conversas, mensagens e instruções relacionadas persistem em PostgreSQL. | [Projects and chats](https://learn.chatgpt.com/docs/projects) |
+| Projetos e conversas | Ativo | Projetos e threads contínuas persistem no PostgreSQL; conversas podem ser buscadas, renomeadas, fixadas, excluídas e ramificadas. | [Projects and chats](https://learn.chatgpt.com/docs/projects), [Projects in ChatGPT](https://help.openai.com/en/articles/10169521-projects-in-chatgpt) |
 | Pesquisa profunda | Ativo | Atalho próprio ativa Work, pensamento e esforço alto; o runtime usa GPT-5.6 e Web Search com citações. Não usa modelos de pesquisa descontinuados. | [Deep research](https://developers.openai.com/api/docs/guides/deep-research), [Web Search](https://developers.openai.com/api/docs/guides/tools-web-search) |
 | Arquivos finalizados | Ativo | Arquivos citados pelo Code Interpreter ou Shell são registrados por tarefa e oferecidos como downloads autenticados. | [Code Interpreter](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Shell](https://developers.openai.com/api/docs/guides/tools-shell) |
 | Biblioteca | Ativo parcial | Exibe anexos da conversa. Uma biblioteca durável e independente de conversas permanece planejada. | [Work with files](https://learn.chatgpt.com/docs/artifacts-viewer) |
@@ -25,6 +25,25 @@ Status:
 | Tarefas longas em segundo plano | Planejado | O runtime atual transmite por SSE. Background Responses + webhooks devem ser adicionados antes de prometer execução desconectada. | [Background mode](https://developers.openai.com/api/docs/guides/background), [Webhooks](https://developers.openai.com/api/docs/guides/webhooks) |
 | Visualizações interativas | Planejado | Markdown, código e mídia já renderizam; artefatos interativos exigem um sandbox de visualização separado. | [Visualizations](https://learn.chatgpt.com/docs/visualizations) |
 | Sites | Ativo no produto | O próprio OMNININJA é publicado pelo Sites; criação de sites por tarefas usa Shell/arquivos e requer entrega verificável. | [Sites](https://learn.chatgpt.com/docs/sites) |
+
+## Interface e comportamento pesquisados
+
+| Comportamento oficial observado | Status no OMNININJA | Implementação/decisão | Fonte oficial |
+| --- | --- | --- | --- |
+| Sidebar responsiva | Ativo | Fixa no desktop e vira painel flutuante com fechamento suave no celular; configurações permanecem no rodapé. | [ChatGPT release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) |
+| Fixar chats e projetos | Ativo parcial | Chats têm fixação persistente e seção Fixados; projetos continuam na seção própria. | [ChatGPT release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) |
+| Busca de conversas | Ativo | Busca server-side por título e conteúdo, sem limitar a consulta ao que já está renderizado na sidebar. | [What is ChatGPT](https://help.openai.com/en/articles/12677804-what-is-chatgpt-faq) |
+| Ramificar conversa | Ativo | Cria uma nova thread PostgreSQL até a mensagem escolhida, preservando a original. | [Projects in ChatGPT](https://help.openai.com/en/articles/10169521-projects-in-chatgpt) |
+| Mensagens contínuas | Ativo | Novos turnos são anexados à thread ativa e reutilizam apenas o histórico persistido autorizado do usuário. | [Conversation state](https://developers.openai.com/api/docs/guides/conversation-state) |
+| Ações sob a resposta | Ativo | Copiar, ouvir, compartilhar, avaliar e ramificar sem mostrar chamadas de ferramenta. | [ChatGPT release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) |
+| Composer móvel e teclado | Ativo | Composer respeita safe areas, menu de ferramentas vira bottom sheet e a sidebar não comprime a conversa. | [ChatGPT release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) |
+| Colagens muito grandes como anexo | Planejado | Evitar texto gigante no composer e convertê-lo em arquivo exige armazenamento durável de Library. | [ChatGPT release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) |
+| Blocos de escrita editáveis | Planejado | Markdown está ativo; edição persistente, tela cheia e undo/redo requerem um artefato versionado próprio. | [Writing and code blocks](https://help.openai.com/en/articles/20001246-working-with-writing-blocks-and-code-blocks-in-chatgpt) |
+| Preview e execução de blocos de código | Planejado | Código já tem destaque e cópia; preview HTML/React/SVG/Mermaid e execução Python devem usar sandbox separado. | [Writing and code blocks](https://help.openai.com/en/articles/20001246-working-with-writing-blocks-and-code-blocks-in-chatgpt) |
+| Chat / Work / Codex | Ativo com escopo próprio | OMNININJA oferece os três perfis no mesmo site. Na OpenAI, Chat e Work compartilham recents; Codex oficial continua dedicado a software e tem restrições de superfície. | [ChatGPT Work and Codex](https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex) |
+| Plugins/apps | Planejado | Não expor catálogo falso. Apps só entram com OAuth server-side, permissões, confirmação para ações e conectores auditados. | [Apps in ChatGPT](https://help.openai.com/en/articles/11487775-connectors-in-chatgpt) |
+| Library durável | Ativo parcial | O painel atual agrega anexos da thread; armazenamento independente, busca, filtros e reutilização entre chats ainda precisam de modelo de dados próprio. | [File storage and Library](https://help.openai.com/en/articles/20001052-file-storage-and-library-in-chatgpt) |
+| Temporary Chat | Planejado | Exige sessão que não grava histórico/memória/library e política explícita de retenção, sem alegar privacidade que o backend não cumpre. | [Data Controls FAQ](https://help.openai.com/en/articles/7730893-data-controls-faq) |
 
 ## OpenAI API e ferramentas hospedadas
 
@@ -63,7 +82,7 @@ Status:
 
 ## Capacidades que não são copiáveis ou automaticamente transferíveis
 
-- Uma assinatura ou conta do ChatGPT não autentica automaticamente um site independente. “Sign in with ChatGPT” depende de acesso de parceiro quando oferecido; o login social público atual é Google OAuth/OIDC.
+- Uma assinatura ou conta do ChatGPT não autentica automaticamente um site independente. “Sign in with ChatGPT” existe, mas precisa estar disponível e configurado para o aplicativo; não transfere conversas, memória, arquivos, créditos ou assinatura. O login social público atual do OMNININJA é Google OAuth/OIDC. [Fonte oficial](https://help.openai.com/pt-br/articles/20001410-sign-in-with-chatgpt)
 - Recursos de aplicativo desktop, extensão do Chrome, appshots, diretório de plugins, pets, Codex Micro e integrações de workspace são produtos/superfícies da OpenAI, não endpoints que podem ser clonados pela API.
 - Evals, fine-tuning, Batch e administração da plataforma são ferramentas de engenharia/operação. Podem melhorar o OMNININJA nos bastidores, mas não devem virar botões públicos sem um caso de uso real.
 - Nenhuma capacidade será apresentada como ativa antes de existir execução verificável, isolamento adequado, credenciais server-only e tratamento de falhas.

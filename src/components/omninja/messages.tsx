@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Check, ChevronDown, Copy, Download, FileText, Image as ImageIcon, LoaderCircle, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, Download, FileText, GitBranch, Image as ImageIcon, LoaderCircle, Share2, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { OmniNinjaLogo } from './brand';
 import { useOmni, type ChatMessage, type MessageMedia } from '@/lib/store';
@@ -121,7 +121,7 @@ function MessageRow({ message }: { message: ChatMessage }) {
           <MarkdownContent content={message.content} streaming={message.streaming} />
         )}
         {message.media && message.media.length > 0 && <MediaResults media={message.media} />}
-        {!message.streaming && message.content && <MessageActions content={message.content} />}
+        {!message.streaming && message.content && <MessageActions content={message.content} messageId={message.id} />}
       </div>
     </motion.div>
   );
@@ -172,10 +172,13 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function MessageActions({ content }: { content: string }) {
+function MessageActions({ content, messageId }: { content: string; messageId: string }) {
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [branching, setBranching] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const activeConversationId = useOmni((state) => state.activeConversationId);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
@@ -197,6 +200,35 @@ function MessageActions({ content }: { content: string }) {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
+  };
+
+  const share = async () => {
+    if (navigator.share) {
+      await navigator.share({ title: 'Resposta do OMNININJA', text: content }).catch(() => null);
+    } else {
+      await navigator.clipboard.writeText(content);
+    }
+    setShared(true);
+    window.setTimeout(() => setShared(false), 1400);
+  };
+
+  const branchConversation = async () => {
+    if (!activeConversationId || branching) return;
+    setBranching(true);
+    try {
+      const response = await fetch(`/api/conversations/${encodeURIComponent(activeConversationId)}/branch`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messageId }),
+      });
+      const data = await response.json().catch(() => ({} as any));
+      if (!response.ok || !data.conversation) return;
+      window.dispatchEvent(new CustomEvent('omninja:conversation-created', {
+        detail: data.conversation,
+      }));
+    } finally {
+      setBranching(false);
+    }
   };
 
   const speak = async () => {
@@ -242,6 +274,12 @@ function MessageActions({ content }: { content: string }) {
       </button>
       <button onClick={() => void speak()} className={cn('flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-white/[0.05]', speaking ? 'text-cyan-300' : 'text-white/30 hover:text-white/70')} title={speaking ? 'Parar áudio' : 'Ouvir resposta'}>
         <Volume2 className="h-3.5 w-3.5" />
+      </button>
+      <button onClick={() => void share()} className={cn('flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-white/[0.05]', shared ? 'text-cyan-300' : 'text-white/30 hover:text-white/70')} title="Compartilhar">
+        {shared ? <Check className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
+      </button>
+      <button disabled={!activeConversationId || branching} onClick={() => void branchConversation()} className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition hover:bg-white/[0.05] hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-35" title="Ramificar em nova conversa">
+        {branching ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <GitBranch className="h-3.5 w-3.5" />}
       </button>
       <button
         onClick={() => setFeedback(feedback === 'up' ? null : 'up')}
