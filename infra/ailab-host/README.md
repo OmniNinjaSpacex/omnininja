@@ -55,7 +55,7 @@ OMNININJA_AILAB_WORKSPACE=.omnininja-workspace
 1. `ailab doctor` succeeds on the execution host.
 2. `sudo ailab dashboard` opens locally.
 3. The private/authenticated transport is established.
-4. `GET /api/health/sandbox` on OmniNinja returns the AI Lab provider as configured and reachable.
+4. `GET /api/health/sandbox` on OmniNinja confirms that isolated execution is enabled (provider details remain private).
 5. Run a disposable test task that writes a file, reads it back, lists the workspace, and executes a harmless command.
 6. Confirm the task container can be deleted after the test.
 

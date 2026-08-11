@@ -38,7 +38,20 @@ function providerSelected(): boolean {
 }
 
 function baseUrl(): string {
-  return (process.env.AILAB_BASE_URL || '').trim().replace(/\/$/, '');
+  const configured = (process.env.AILAB_BASE_URL || '').trim();
+  if (!configured) return '';
+
+  const parsed = new URL(configured);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('AILAB_BASE_URL precisa usar HTTP ou HTTPS');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('AILAB_BASE_URL não pode conter credenciais');
+  }
+  if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+    throw new Error('AILAB_BASE_URL precisa usar HTTPS em produção');
+  }
+  return parsed.toString().replace(/\/$/, '');
 }
 
 function apiToken(): string {
@@ -52,7 +65,11 @@ function workspaceName(): string {
 }
 
 export function ailabConfigured(): boolean {
-  return providerSelected() && Boolean(baseUrl()) && Boolean(apiToken());
+  try {
+    return providerSelected() && Boolean(baseUrl()) && Boolean(apiToken());
+  } catch {
+    return false;
+  }
 }
 
 export function ailabContainerName(taskId: string): string {

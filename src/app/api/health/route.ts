@@ -16,13 +16,14 @@ export async function GET() {
       database: 'operational',
       latencyMs: Date.now() - startedAt,
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error('[health] PostgreSQL indisponível', error);
     return NextResponse.json(
       {
         ok: false,
         service: 'OMNINJA',
         database: 'unavailable',
-        error: error?.message || 'Database health check failed',
+        error: 'Verificação do banco falhou.',
         latencyMs: Date.now() - startedAt,
       },
       { status: 503 },

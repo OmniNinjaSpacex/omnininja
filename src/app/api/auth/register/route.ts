@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { registerUser } from '@/lib/auth';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { parseJsonRequest } from '@/lib/http-body';
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({} as any));
+  const parsedRequest = await parseJsonRequest(req, 16 * 1024);
+  if (!parsedRequest.ok) return parsedRequest.response;
+  const body = parsedRequest.body;
   const email = typeof body.email === 'string' ? body.email.trim() : '';
   const password = typeof body.password === 'string' ? body.password : '';
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : undefined;
@@ -14,9 +18,12 @@ export async function POST(req: Request) {
     );
   }
 
-  if (password.length < 8) {
+  const rateLimit = checkRateLimit(req, 'auth-register', 5, 60 * 60_000, email);
+  if (!rateLimit.ok) return rateLimitResponse(rateLimit.retryAfterSeconds);
+
+  if (password.length < 8 || password.length > 256) {
     return NextResponse.json(
-      { error: 'A senha precisa ter pelo menos 8 caracteres.' },
+      { error: 'A senha precisa ter entre 8 e 256 caracteres.' },
       { status: 400 },
     );
   }

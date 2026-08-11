@@ -7,7 +7,7 @@ import { useOmni } from '@/lib/store';
 const cards = [
   { icon: Sparkles, title: 'Pesquise que eu resolvo', body: 'O OMNINJA pesquisa, organiza contexto e transforma o pedido em uma entrega útil.' },
   { icon: Braces, title: 'Software sem alternar aba', body: 'Código, arquivos e execução ficam ligados à mesma tarefa e ao mesmo workspace.' },
-  { icon: Globe2, title: 'Navegue quando precisar', body: 'Browserless e pesquisa web entram como ferramentas internas, sem mudar a experiência.' },
+  { icon: Globe2, title: 'Navegue quando precisar', body: 'Navegação remota e pesquisa web entram nos bastidores, sem mudar a experiência.' },
 ];
 
 export function LandingPage() {
@@ -82,7 +82,7 @@ export function LandingPage() {
               <div className="border-l border-white/[0.05] p-3">
                 <div className="text-[8px] uppercase tracking-[.16em] text-white/20">Workspace</div>
                 <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3 font-mono text-[9px] leading-6 text-white/35">
-                  <span className="text-cyan-300/70">const</span> future = <span className="text-white/60">await agent.run()</span>;<br /><br />return experience;
+                  <span className="text-cyan-300/70">const</span> resultado = <span className="text-white/60">await omnininja.criar()</span>;<br /><br />return resultado;
                 </div>
               </div>
             </div>
@@ -119,7 +119,7 @@ export function LandingPage() {
         </div>
         <div id="seguranca" className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] p-5"><Bot className="h-5 w-5 text-cyan-300" /><div className="mt-7 text-sm">OMNINJA</div><div className="mt-2 text-xs leading-6 text-white/35">Uma identidade pública para chat, tarefas e execução.</div></div>
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] p-5"><LockKeyhole className="h-5 w-5 text-cyan-300" /><div className="mt-7 text-sm">Execução isolada</div><div className="mt-2 text-xs leading-6 text-white/35">AI Lab e sandbox permanecem separados do servidor principal.</div></div>
+          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] p-5"><LockKeyhole className="h-5 w-5 text-cyan-300" /><div className="mt-7 text-sm">Execução isolada</div><div className="mt-2 text-xs leading-6 text-white/35">Ambientes de tarefa permanecem separados do servidor principal.</div></div>
         </div>
       </section>
     </main>

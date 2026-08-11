@@ -1,0 +1,15 @@
+.git
+.github
+.next
+.openai
+node_modules
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+coverage
+workspaces
+outputs
+db
+

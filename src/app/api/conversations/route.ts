@@ -13,6 +13,7 @@ export async function GET() {
     take: 40,
     select: {
       id: true,
+      projectId: true,
       title: true,
       status: true,
       createdAt: true,

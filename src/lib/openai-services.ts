@@ -1,4 +1,4 @@
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
 export function requireOpenAIKey(): string {
   const key = process.env.OPENAI_API_KEY?.trim();
@@ -11,8 +11,7 @@ export const OPENAI_SERVICE_MODELS = {
   moderation: 'omni-moderation-latest',
   transcription: process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe',
   speech: process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts',
-  realtime: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime',
-  image: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+  realtime: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1',
   video: process.env.OPENAI_VIDEO_MODEL || 'sora-2',
   embedding: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large',
 } as const;
@@ -21,7 +20,6 @@ export function buildOpenAIHostedTools(): any[] {
   const tools: any[] = [
     { type: 'web_search' },
     { type: 'code_interpreter', container: { type: 'auto' } },
-    { type: 'image_generation', action: 'auto', quality: 'auto', size: 'auto', background: 'auto' },
   ];
 
   const vectorStoreIds = (process.env.OPENAI_VECTOR_STORE_IDS || '')

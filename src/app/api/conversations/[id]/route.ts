@@ -20,9 +20,15 @@ export async function GET(
       status: true,
       createdAt: true,
       messages: {
-        where: { role: 'assistant' },
         orderBy: { createdAt: 'asc' },
-        select: { id: true, role: true, content: true, model: true, createdAt: true },
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          model: true,
+          attachmentsJson: true,
+          createdAt: true,
+        },
       },
     },
   });
@@ -31,20 +37,34 @@ export async function GET(
     return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
   }
 
+  const persistedMessages = task.messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map(({ attachmentsJson, ...message }) => {
+      if (!attachmentsJson) return message;
+      try {
+        const parsed = JSON.parse(attachmentsJson);
+        return { ...message, attachments: Array.isArray(parsed) ? parsed : undefined };
+      } catch {
+        return message;
+      }
+    });
+
   return NextResponse.json({
     conversation: {
       id: task.id,
       title: task.title,
       status: task.status,
       createdAt: task.createdAt,
-      messages: [
+      messages: persistedMessages.some((message) => message.role === 'user')
+        ? persistedMessages
+        : [
         {
           id: `user-${task.id}`,
           role: 'user',
           content: task.goal,
           createdAt: task.createdAt,
         },
-        ...task.messages,
+        ...persistedMessages,
       ],
     },
   });

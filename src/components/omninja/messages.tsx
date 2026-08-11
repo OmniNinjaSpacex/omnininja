@@ -123,6 +123,21 @@ function MessageActions({ content }: { content: string }) {
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+
+  useEffect(() => () => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
+  }, []);
+
+  const releaseAudio = () => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
+  };
 
   const copy = async () => {
     await navigator.clipboard.writeText(content);
@@ -132,8 +147,7 @@ function MessageActions({ content }: { content: string }) {
 
   const speak = async () => {
     if (speaking) {
-      audioRef.current?.pause();
-      audioRef.current = null;
+      releaseAudio();
       setSpeaking(false);
       return;
     }
@@ -150,24 +164,24 @@ function MessageActions({ content }: { content: string }) {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
+      audioUrlRef.current = url;
       audio.onended = () => {
-        URL.revokeObjectURL(url);
-        audioRef.current = null;
+        releaseAudio();
         setSpeaking(false);
       };
       audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        audioRef.current = null;
+        releaseAudio();
         setSpeaking(false);
       };
       await audio.play();
     } catch {
+      releaseAudio();
       setSpeaking(false);
     }
   };
 
   return (
-    <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+    <div className="mt-2 flex items-center gap-1 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
       <button onClick={() => void copy()} className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] text-white/35 transition hover:bg-white/[0.05] hover:text-white/70" title="Copiar">
         {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
         {copied ? 'Copiado' : 'Copiar'}

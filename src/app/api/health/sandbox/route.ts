@@ -12,10 +12,7 @@ export async function GET() {
   if (provider === 'disabled') {
     return NextResponse.json({
       ok: true,
-      provider: 'disabled',
-      configured: true,
-      reachable: true,
-      productionSafe: true,
+      service: 'execution',
       executionEnabled: false,
     });
   }
@@ -23,16 +20,13 @@ export async function GET() {
   if (provider === 'ailab') {
     const health = await ailabHealth();
     const ok = health.configured && health.reachable;
+    if (!ok) console.error('[health] execução remota indisponível', health.error || 'not ready');
     return NextResponse.json(
       {
         ok,
-        provider: 'ailab',
-        configured: health.configured,
-        reachable: health.reachable,
-        productionSafe: health.productionSafe,
+        service: 'execution',
         executionEnabled: ok,
-        securityModel: health.securityModel,
-        error: health.error,
+        ...(ok ? {} : { error: 'Ambiente de execução indisponível.' }),
       },
       { status: ok ? 200 : 503 },
     );
@@ -45,16 +39,9 @@ export async function GET() {
   return NextResponse.json(
     {
       ok: executionEnabled,
-      provider: 'local',
-      configured: true,
-      reachable: true,
-      productionSafe: local.productionSafe,
+      service: 'execution',
       executionEnabled,
-      level: local.level,
-      levelName: local.levelName,
-      hasUnshare: local.hasUnshare,
-      hasProot: local.hasProot,
-      hasBaseImage: local.hasBaseImage,
+      ...(executionEnabled ? {} : { error: 'Ambiente de execução seguro indisponível.' }),
     },
     { status: executionEnabled ? 200 : 503 },
   );

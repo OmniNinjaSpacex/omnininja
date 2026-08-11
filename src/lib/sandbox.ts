@@ -26,18 +26,18 @@ function safeTaskId(taskId: string): string {
 }
 
 function workspaceFor(taskId: string): string {
-  return resolve(WORKSPACE_ROOT, safeTaskId(taskId));
+  return resolve(/* turbopackIgnore: true */ WORKSPACE_ROOT, safeTaskId(taskId));
 }
 
 function sandboxDirFor(taskId: string): string {
-  return resolve(SANDBOX_BASE, safeTaskId(taskId));
+  return resolve(/* turbopackIgnore: true */ SANDBOX_BASE, safeTaskId(taskId));
 }
 
 /** Resolve a user-controlled relative path and guarantee it stays in workspace. */
 export function resolveWorkspacePath(taskId: string, path: string): string {
   const workspace = workspaceFor(taskId);
   const relativePath = String(path || '').replace(/^[\\/]+/, '');
-  const candidate = resolve(workspace, relativePath || '.');
+  const candidate = resolve(/* turbopackIgnore: true */ workspace, relativePath || '.');
 
   if (candidate !== workspace && !candidate.startsWith(workspace + sep)) {
     throw new Error('path traversal bloqueado');
@@ -52,7 +52,7 @@ export function detectSandboxLevel(): SandboxLevel {
   try {
     const hasUnshare = execSync('which unshare 2>/dev/null', { encoding: 'utf-8' }).trim();
     const hasProot = execSync('which proot 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (hasUnshare && hasProot && existsSync(join(SANDBOX_IMAGE, 'bin/bash'))) {
+    if (hasUnshare && hasProot && existsSync(/* turbopackIgnore: true */ join(/* turbopackIgnore: true */ SANDBOX_IMAGE, 'bin/bash'))) {
       try {
         execSync('unshare --user --map-root-user true 2>/dev/null', {
           encoding: 'utf-8',
@@ -66,7 +66,7 @@ export function detectSandboxLevel(): SandboxLevel {
     }
   } catch {}
 
-  if (existsSync(join(SANDBOX_IMAGE, 'bin/bash'))) {
+  if (existsSync(/* turbopackIgnore: true */ join(/* turbopackIgnore: true */ SANDBOX_IMAGE, 'bin/bash'))) {
     detectedLevel = 1;
     return 1;
   }
@@ -77,10 +77,10 @@ export function detectSandboxLevel(): SandboxLevel {
 
 function ensureWorkspace(taskId: string): string {
   const workspace = workspaceFor(taskId);
-  if (!existsSync(workspace)) {
-    mkdirSync(workspace, { recursive: true });
+  if (!existsSync(/* turbopackIgnore: true */ workspace)) {
+    mkdirSync(/* turbopackIgnore: true */ workspace, { recursive: true });
     writeFileSync(
-      join(workspace, 'package.json'),
+      /* turbopackIgnore: true */ join(/* turbopackIgnore: true */ workspace, 'package.json'),
       JSON.stringify({ name: 'omninja-sandbox', version: '1.0.0', private: true }),
     );
   }
@@ -94,7 +94,9 @@ export function getSandbox(taskId: string): { root: string; level: SandboxLevel 
   if (level === 0) return { root: workspace, level };
 
   const sandboxDir = sandboxDirFor(taskId);
-  if (!existsSync(sandboxDir)) mkdirSync(sandboxDir, { recursive: true });
+  if (!existsSync(/* turbopackIgnore: true */ sandboxDir)) {
+    mkdirSync(/* turbopackIgnore: true */ sandboxDir, { recursive: true });
+  }
 
   return { root: sandboxDir, level };
 }
@@ -106,7 +108,7 @@ function shellQuote(value: string): string {
 function wrapCommand(taskId: string, cmd: string, sandbox: { root: string; level: SandboxLevel }): string {
   const workspace = workspaceFor(taskId);
 
-  if (sandbox.level === 2 && existsSync(SANDBOX_IMAGE)) {
+  if (sandbox.level === 2 && existsSync(/* turbopackIgnore: true */ SANDBOX_IMAGE)) {
     const prootCmd = [
       'proot',
       `-r ${shellQuote(SANDBOX_IMAGE)}`,
@@ -125,7 +127,7 @@ function wrapCommand(taskId: string, cmd: string, sandbox: { root: string; level
     return `unshare --user --map-root-user --pid --mount ${networkFlag} --fork ${prootCmd}`;
   }
 
-  if (sandbox.level === 1 && existsSync(SANDBOX_IMAGE)) {
+  if (sandbox.level === 1 && existsSync(/* turbopackIgnore: true */ SANDBOX_IMAGE)) {
     // Development-only fallback. Production execution is blocked below because
     // a shared chroot is not sufficient tenant isolation for public users.
     return `chroot ${shellQuote(SANDBOX_IMAGE)} /bin/bash -lc ${shellQuote(`cd /workspace && ${cmd}`)}`;
@@ -137,7 +139,9 @@ function wrapCommand(taskId: string, cmd: string, sandbox: { root: string; level
 function safeChildEnv(taskId: string, level: SandboxLevel): NodeJS.ProcessEnv {
   const workspace = ensureWorkspace(taskId);
   const tmp = resolveWorkspacePath(taskId, '.tmp');
-  if (!existsSync(tmp)) mkdirSync(tmp, { recursive: true });
+  if (!existsSync(/* turbopackIgnore: true */ tmp)) {
+    mkdirSync(/* turbopackIgnore: true */ tmp, { recursive: true });
+  }
 
   // Intentionally DO NOT spread process.env here. API keys, database URLs,
   // cookies, cloud credentials and deployment secrets must never enter Agent
@@ -182,7 +186,7 @@ export async function executeInSandbox(
   }
 
   const wrappedCmd = wrapCommand(taskId, cmd, sandbox);
-  const cwd = sandbox.level === 0 ? workspaceFor(taskId) : process.cwd();
+  const cwd = workspaceFor(taskId);
   const safeTimeout = Math.max(1000, Math.min(Number(timeoutMs) || 60000, 10 * 60 * 1000));
 
   try {
@@ -218,8 +222,8 @@ export function sandboxFileWrite(
 ): { path: string; bytes: number } {
   ensureWorkspace(taskId);
   const safePath = resolveWorkspacePath(taskId, path);
-  mkdirSync(dirname(safePath), { recursive: true });
-  writeFileSync(safePath, content, 'utf-8');
+  mkdirSync(/* turbopackIgnore: true */ dirname(/* turbopackIgnore: true */ safePath), { recursive: true });
+  writeFileSync(/* turbopackIgnore: true */ safePath, content, 'utf-8');
   return { path: safePath, bytes: Buffer.byteLength(content, 'utf-8') };
 }
 
@@ -233,7 +237,7 @@ export function sandboxFileRead(taskId: string, path: string): string {
   }
 
   try {
-    return readFileSync(safePath, 'utf-8').slice(0, 30000);
+    return readFileSync(/* turbopackIgnore: true */ safePath, 'utf-8').slice(0, 30000);
   } catch {
     return `Error: file not found: ${path}`;
   }
@@ -255,10 +259,14 @@ export async function sandboxListFiles(taskId: string): Promise<string[]> {
 
 export function cleanupSandbox(taskId: string) {
   const workspace = workspaceFor(taskId);
-  if (existsSync(workspace)) rmSync(workspace, { recursive: true, force: true });
+  if (existsSync(/* turbopackIgnore: true */ workspace)) {
+    rmSync(/* turbopackIgnore: true */ workspace, { recursive: true, force: true });
+  }
 
   const sandboxDir = sandboxDirFor(taskId);
-  if (existsSync(sandboxDir)) rmSync(sandboxDir, { recursive: true, force: true });
+  if (existsSync(/* turbopackIgnore: true */ sandboxDir)) {
+    rmSync(/* turbopackIgnore: true */ sandboxDir, { recursive: true, force: true });
+  }
 }
 
 export function sandboxHealth(): {
@@ -291,7 +299,7 @@ export function sandboxHealth(): {
     productionSafe: level === 2,
     hasUnshare,
     hasProot,
-    hasBaseImage: existsSync(join(SANDBOX_IMAGE, 'bin/bash')),
+    hasBaseImage: existsSync(/* turbopackIgnore: true */ join(/* turbopackIgnore: true */ SANDBOX_IMAGE, 'bin/bash')),
     workspaceRoot: WORKSPACE_ROOT,
     sandboxBase: SANDBOX_BASE,
     baseImage: SANDBOX_IMAGE,

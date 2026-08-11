@@ -2,7 +2,7 @@
 // One conversation surface; tools, providers and private reasoning stay server-side.
 
 import { getCurrentUser } from '@/lib/auth';
-import { consumeCredits, CREDIT_COSTS } from '@/lib/credits';
+import { consumeCredits, CREDIT_COSTS, refundCreditDebit } from '@/lib/credits';
 import { db } from '@/lib/db';
 import {
   runOmniNinjaRuntime,
@@ -10,19 +10,21 @@ import {
   type RuntimeMessage,
 } from '@/lib/omnininja-runtime';
 import {
-  MAX_ATTACHMENT_BYTES,
-  MAX_ATTACHMENTS_PER_MESSAGE,
-  type OmniNinjaAttachment,
+  normalizeOmniNinjaAttachments,
 } from '@/lib/omnininja-attachments';
 import { buildAttachmentContext } from '@/lib/omnininja-attachment-context';
 import { buildSemanticMemoryContext } from '@/lib/semantic-memory';
 import { moderateText } from '@/lib/openai-services';
 import { finalizeWorkspace } from '@/lib/shell-agent';
 import type { AgentEvent } from '@/lib/orchestrator';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { openAISafetyIdentifier } from '@/lib/openai-safety';
+import { parseJsonRequest } from '@/lib/http-body';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
+const MAX_REQUEST_BYTES = 40 * 1024 * 1024;
 
 function normalizeEffort(value: unknown): OmniNinjaEffort {
   return value === 'low' || value === 'high' ? value : 'medium';
@@ -33,29 +35,6 @@ function creditCost(effort: OmniNinjaEffort, thinkingEnabled: boolean): number {
   if (effort === 'high') return CREDIT_COSTS.chat_message * 4;
   if (effort === 'medium') return CREDIT_COSTS.chat_message * 2;
   return CREDIT_COSTS.chat_message;
-}
-
-function normalizeAttachments(value: unknown): OmniNinjaAttachment[] {
-  if (!Array.isArray(value)) return [];
-
-  const normalized: OmniNinjaAttachment[] = [];
-  for (const item of value.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)) {
-    if (!item || typeof item !== 'object') continue;
-    const attachment = item as Record<string, unknown>;
-    const name = typeof attachment.name === 'string' ? attachment.name.slice(0, 180) : '';
-    const mimeType = typeof attachment.mimeType === 'string'
-      ? attachment.mimeType.slice(0, 120)
-      : 'application/octet-stream';
-    const size = Number(attachment.size);
-    const dataUrl = typeof attachment.dataUrl === 'string' ? attachment.dataUrl : '';
-    const id = typeof attachment.id === 'string' ? attachment.id.slice(0, 120) : crypto.randomUUID();
-
-    if (!name || !dataUrl.startsWith('data:')) continue;
-    if (!Number.isFinite(size) || size <= 0 || size > MAX_ATTACHMENT_BYTES) continue;
-
-    normalized.push({ id, name, mimeType, size, dataUrl });
-  }
-  return normalized;
 }
 
 function publicActivityLabel(event: AgentEvent): string {
@@ -101,7 +80,7 @@ function streamChunks(text: string): string[] {
   const chunks: string[] = [];
   let cursor = 0;
   while (cursor < text.length) {
-    let next = Math.min(text.length, cursor + 48);
+    let next = Math.min(text.length, cursor + 512);
     if (next < text.length) {
       const boundary = text.lastIndexOf(' ', next);
       if (boundary > cursor + 18) next = boundary + 1;
@@ -114,22 +93,27 @@ function streamChunks(text: string): string[] {
 
 export async function POST(req: Request) {
   const user = await getCurrentUser();
+  const safetyIdentifier = openAISafetyIdentifier(user.id);
+  const rateLimit = checkRateLimit(req, 'omnininja-respond', 30, 60_000, user.id);
+  if (!rateLimit.ok) return rateLimitResponse(rateLimit.retryAfterSeconds);
 
   if (!process.env.OPENAI_API_KEY?.trim()) {
     return Response.json(
-      { error: 'OMNINJA indisponível: OPENAI_API_KEY não configurada no servidor.' },
+      { error: 'OMNINJA indisponível neste deploy.' },
       { status: 503 },
     );
   }
 
-  const body = await req.json().catch(() => ({} as any));
+  const parsedRequest = await parseJsonRequest(req, MAX_REQUEST_BYTES);
+  if (!parsedRequest.ok) return parsedRequest.response;
+  const body = parsedRequest.body;
   const incoming = Array.isArray(body.messages) ? body.messages : [];
   const messages: RuntimeMessage[] = incoming
     .filter(
       (message: any) =>
         (message?.role === 'user' || message?.role === 'assistant') &&
         typeof message?.content === 'string' &&
-        message.content.trim(),
+        message.content.trim().slice(0, 32_000),
     )
     .slice(-40)
     .map((message: any) => ({
@@ -145,7 +129,17 @@ export async function POST(req: Request) {
   const originalUserText = messages[lastUserIndex].content;
   const effort = normalizeEffort(body.effort);
   const thinkingEnabled = body.thinkingEnabled !== false;
-  const attachments = normalizeAttachments(body.attachments);
+  const attachments = normalizeOmniNinjaAttachments(body.attachments);
+  const requestedProjectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
+  const project = requestedProjectId
+    ? await db.project.findFirst({
+        where: { id: requestedProjectId, userId: user.id },
+        select: { id: true },
+      })
+    : null;
+  if (requestedProjectId && !project) {
+    return Response.json({ error: 'Projeto não encontrado.' }, { status: 404 });
+  }
   const cost = creditCost(effort, thinkingEnabled);
   const consume = await consumeCredits(user.id, cost, 'omnininja_response');
 
@@ -179,15 +173,20 @@ export async function POST(req: Request) {
 
   if (attachments.length > 0) {
     try {
-      const attachmentContext = await buildAttachmentContext(attachments);
+      const attachmentContext = await buildAttachmentContext(attachments, req.signal);
       privateContext.push([
         '--- Contexto privado dos anexos desta mensagem ---',
         attachmentContext,
         '--- Fim do contexto privado ---',
       ].join('\n'));
-    } catch (error: any) {
+    } catch {
+      await refundCreditDebit(
+        user.id,
+        consume.debit,
+        'omnininja_response_preprocessing_refund',
+      ).catch(() => {});
       return Response.json(
-        { error: error?.message || 'Não foi possível analisar os anexos.' },
+        { error: 'Não foi possível analisar os anexos.' },
         { status: 422 },
       );
     }
@@ -200,43 +199,74 @@ export async function POST(req: Request) {
     };
   }
 
-  await db.message.create({
-    data: {
-      userId: user.id,
-      role: 'user',
-      content: originalUserText,
-      model: 'OMNINJA',
-      embeddingJson: memory.queryEmbedding.length ? JSON.stringify(memory.queryEmbedding) : null,
-    },
-  });
+  const taskId = crypto.randomUUID();
+  try {
+    await db.$transaction([
+      db.task.create({
+        data: {
+          id: taskId,
+          userId: user.id,
+          projectId: project?.id,
+          title: originalUserText.slice(0, 80),
+          goal: originalUserText,
+          mode: 'omnininja',
+          model: 'OMNINJA',
+          status: 'running',
+          stepsTotal: effort === 'high' ? 30 : effort === 'medium' ? 14 : 6,
+          creditsUsed: cost,
+          startedAt: new Date(),
+        },
+      }),
+      db.message.create({
+        data: {
+          userId: user.id,
+          taskId,
+          role: 'user',
+          content: originalUserText,
+          model: 'OMNINJA',
+          embeddingJson: memory.queryEmbedding.length ? JSON.stringify(memory.queryEmbedding) : null,
+          attachmentsJson: attachments.length
+            ? JSON.stringify(attachments.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size })))
+            : null,
+        },
+      }),
+      db.creditTransaction.update({
+        where: { id: consume.transactionId },
+        data: { taskId },
+      }),
+    ]);
+  } catch {
+    await refundCreditDebit(
+      user.id,
+      consume.debit,
+      'omnininja_response_persistence_refund',
+    ).catch(() => {});
+    return Response.json({ error: 'Não foi possível iniciar esta tarefa.' }, { status: 500 });
+  }
 
-  const task = await db.task.create({
-    data: {
-      userId: user.id,
-      title: originalUserText.slice(0, 80),
-      goal: originalUserText,
-      mode: 'omnininja',
-      model: 'OMNINJA',
-      status: 'running',
-      stepsTotal: effort === 'high' ? 30 : effort === 'medium' ? 14 : 6,
-      creditsUsed: cost,
-      startedAt: new Date(),
-    },
-  });
-
-  const taskId = task.id;
   const encoder = new TextEncoder();
+  const runtimeAbort = new AbortController();
+  const abortRuntime = () => runtimeAbort.abort();
+  if (req.signal.aborted) abortRuntime();
+  else req.signal.addEventListener('abort', abortRuntime, { once: true });
 
   const stream = new ReadableStream({
     async start(controller) {
+      let streamOpen = true;
       const send = (payload: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        if (!streamOpen || runtimeAbort.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          streamOpen = false;
+          abortRuntime();
+        }
       };
 
       const persistedEvents: { type: string; payload: string }[] = [];
 
       const onEvent = (event: AgentEvent) => {
-        const { screenshotBase64, ...safeInternalEvent } = event as any;
+        const { screenshotBase64: _screenshotBase64, ...safeInternalEvent } = event as any;
         persistedEvents.push({ type: event.type, payload: JSON.stringify(safeInternalEvent) });
 
         const publicEvent = publicActivityEvent(event);
@@ -260,6 +290,8 @@ export async function POST(req: Request) {
           thinkingEnabled,
           taskId,
           onEvent,
+          signal: runtimeAbort.signal,
+          safetyIdentifier,
         });
 
         if (persistedEvents.length > 0) {
@@ -294,6 +326,7 @@ export async function POST(req: Request) {
         send({ type: 'done', taskId, model: 'OMNINJA' });
       } catch (error: any) {
         const internalMessage = error?.message || 'Falha no OMNINJA';
+        const cancelled = runtimeAbort.signal.aborted;
 
         if (persistedEvents.length > 0) {
           await db.eventRow.createMany({
@@ -304,22 +337,35 @@ export async function POST(req: Request) {
         await db.task.update({
           where: { id: taskId },
           data: {
-            status: 'failed',
-            summary: String(internalMessage).slice(0, 500),
+            status: cancelled ? 'cancelled' : 'failed',
+            summary: cancelled ? 'Resposta interrompida pelo usuário.' : String(internalMessage).slice(0, 500),
             finishedAt: new Date(),
           },
         }).catch(() => {});
 
-        send({
-          type: 'error',
-          taskId,
-          error: 'Não consegui concluir esta resposta. Tente novamente em instantes.',
-        });
+        if (!cancelled) {
+          send({
+            type: 'error',
+            taskId,
+            error: 'Não consegui concluir esta resposta. Tente novamente em instantes.',
+          });
+        }
       } finally {
         await finalizeWorkspace(taskId).catch(() => {});
-        controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
-        controller.close();
+        req.signal.removeEventListener('abort', abortRuntime);
+        if (streamOpen) {
+          try {
+            if (!runtimeAbort.signal.aborted) {
+              controller.enqueue(encoder.encode('event: end\ndata: {}\n\n'));
+            }
+            controller.close();
+          } catch {}
+        }
+        streamOpen = false;
       }
+    },
+    cancel() {
+      abortRuntime();
     },
   });
 

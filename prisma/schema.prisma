@@ -42,6 +42,8 @@ model Session {
   ip           String?
   createdAt    DateTime @default(now())
   expiresAt    DateTime
+
+  @@index([userId, expiresAt])
 }
 
 model Project {
@@ -54,6 +56,8 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tasks       Task[]
+
+  @@index([userId, updatedAt])
 }
 
 model Task {
@@ -64,7 +68,7 @@ model Task {
   project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   title       String
   goal        String
-  mode        String   @default("agent")
+  mode        String   @default("omnininja")
   model       String   @default("OMNINJA")
   status      String   @default("queued")
   summary     String?
@@ -78,6 +82,10 @@ model Task {
   messages    Message[]
   events      EventRow[]
   artifacts   Artifact[]
+  creditTxns  CreditTransaction[]
+
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
 }
 
 model Message {
@@ -92,6 +100,7 @@ model Message {
   tokensIn      Int      @default(0)
   tokensOut     Int      @default(0)
   embeddingJson String?
+  attachmentsJson String?
   createdAt     DateTime @default(now())
 
   @@index([userId, createdAt])
@@ -117,6 +126,8 @@ model Artifact {
   path        String
   sizeBytes   Int      @default(0)
   createdAt   DateTime @default(now())
+
+  @@index([kind, path])
 }
 
 model ScheduledTask {
@@ -125,7 +136,7 @@ model ScheduledTask {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   prompt      String
-  mode        String   @default("agent")
+  mode        String   @default("omnininja")
   model       String   @default("OMNINJA")
   schedule    String
   enabled     Boolean  @default(true)
@@ -134,6 +145,8 @@ model ScheduledTask {
   runsCount   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([userId, nextRunAt])
 }
 
 model CreditTransaction {
@@ -143,9 +156,11 @@ model CreditTransaction {
   delta       Int
   reason      String
   taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([taskId])
 }
 
 model Integration {
