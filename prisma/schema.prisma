@@ -9,9 +9,11 @@ generator client {
 // Cloudflare/Sites uses the JavaScript query engine with Neon's edge driver.
 // The default generator above remains the source for Node.js and Docker.
 generator edgeClient {
-  provider   = "prisma-client-js"
-  output     = "../src/generated/prisma-edge"
-  engineType = "client"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma-edge"
+  engineType   = "client"
+  runtime      = "workerd"
+  moduleFormat = "esm"
 }
 
 datasource db {
