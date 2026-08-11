@@ -1,5 +1,5 @@
 import { getCurrentUser } from '@/lib/auth';
-import { db } from '@/lib/db';
+import { db } from '#omninininja/db';
 import { OPENAI_BASE_URL, requireOpenAIKey } from '@/lib/openai-services';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 
