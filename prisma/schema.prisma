@@ -113,8 +113,11 @@ model Task {
   stepsTotal  Int      @default(0)
   stepsDone   Int      @default(0)
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   startedAt   DateTime?
   finishedAt  DateTime?
+  pinnedAt    DateTime?
+  branchedFromId String?
 
   messages    Message[]
   events      EventRow[]
@@ -122,6 +125,7 @@ model Task {
   creditTxns  CreditTransaction[]
 
   @@index([userId, createdAt])
+  @@index([userId, pinnedAt, updatedAt])
   @@index([projectId, createdAt])
 }
 

@@ -69,6 +69,8 @@ interface OmniState {
   setThinkingEnabled: (enabled: boolean) => void;
   activeProjectId: string | null;
   setActiveProjectId: (projectId: string | null) => void;
+  activeConversationId: string | null;
+  setActiveConversationId: (conversationId: string | null) => void;
 
   currentTask: TaskRun | null;
   setCurrentTask: (t: TaskRun | null) => void;
@@ -99,6 +101,8 @@ export const useOmni = create<OmniState>((set) => ({
   setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
   activeProjectId: null,
   setActiveProjectId: (activeProjectId) => set({ activeProjectId }),
+  activeConversationId: null,
+  setActiveConversationId: (activeConversationId) => set({ activeConversationId }),
 
   currentTask: null,
   setCurrentTask: (currentTask) => set({ currentTask }),

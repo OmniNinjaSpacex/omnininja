@@ -14,6 +14,9 @@ import {
   Menu,
   MessageSquare,
   Monitor,
+  Pencil,
+  Pin,
+  PinOff,
   Plus,
   Search,
   Settings,
@@ -43,6 +46,8 @@ interface ConversationSummary {
   title: string;
   status: string;
   createdAt: string;
+  updatedAt: string;
+  pinnedAt: string | null;
 }
 
 interface ProjectSummary {
@@ -68,6 +73,14 @@ const effortLabel: Record<ReasoningEffort, string> = {
   high: 'Alto',
 };
 
+function sortConversations(conversations: ConversationSummary[]) {
+  return [...conversations].sort((left, right) => {
+    if (left.pinnedAt && !right.pinnedAt) return -1;
+    if (!left.pinnedAt && right.pinnedAt) return 1;
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  });
+}
+
 export function Workspace() {
   const router = useRouter();
   const user = useOmni((state) => state.user);
@@ -83,6 +96,8 @@ export function Workspace() {
   const setWorkspaceMode = useOmni((state) => state.setWorkspaceMode);
   const activeProjectId = useOmni((state) => state.activeProjectId);
   const setActiveProjectId = useOmni((state) => state.setActiveProjectId);
+  const activeConversationId = useOmni((state) => state.activeConversationId);
+  const setActiveConversationId = useOmni((state) => state.setActiveConversationId);
 
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [sessionError, setSessionError] = useState('');
@@ -112,13 +127,17 @@ export function Workspace() {
     }
   }, []);
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (query = '') => {
     setHistoryLoading(true);
     try {
-      const response = await fetch('/api/conversations', { cache: 'no-store' });
+      const normalizedQuery = query.trim();
+      const endpoint = normalizedQuery
+        ? `/api/conversations?q=${encodeURIComponent(normalizedQuery)}`
+        : '/api/conversations';
+      const response = await fetch(endpoint, { cache: 'no-store' });
       const data = await response.json().catch(() => ({} as any));
       if (response.ok && Array.isArray(data.conversations)) {
-        setConversations(data.conversations);
+        setConversations(sortConversations(data.conversations));
       }
     } finally {
       setHistoryLoading(false);
@@ -166,6 +185,14 @@ export function Workspace() {
   }, [currentTask?.status, loadConversations, loadProjects]);
 
   useEffect(() => {
+    if (!searchOpen) return;
+    const timer = window.setTimeout(() => {
+      void loadConversations(searchQuery);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchOpen, searchQuery, loadConversations]);
+
+  useEffect(() => {
     const closeTransientUi = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       setSidebarOpen(false);
@@ -179,6 +206,7 @@ export function Workspace() {
   const newTask = () => {
     clearMessages();
     setCurrentTask(null);
+    setActiveConversationId(null);
     setSidebarOpen(false);
   };
 
@@ -211,7 +239,7 @@ export function Workspace() {
     )));
   };
 
-  const openConversation = async (id: string) => {
+  const openConversation = useCallback(async (id: string) => {
     try {
       const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { cache: 'no-store' });
       const data = await response.json().catch(() => ({} as any));
@@ -232,14 +260,78 @@ export function Workspace() {
         useOmni.getState().pushMessage(chatMessage);
       }
       setCurrentTask(null);
+      setActiveConversationId(String(data.conversation.id));
+      setActiveProjectId(data.conversation.projectId || null);
+      if (data.conversation.mode === 'chat' || data.conversation.mode === 'work' || data.conversation.mode === 'codex') {
+        setWorkspaceMode(data.conversation.mode);
+      }
       setSidebarOpen(false);
     } catch {}
+  }, [clearMessages, setActiveConversationId, setActiveProjectId, setCurrentTask, setWorkspaceMode]);
+
+  useEffect(() => {
+    const openCreatedConversation = (event: Event) => {
+      const conversation = (event as CustomEvent<ConversationSummary>).detail;
+      if (!conversation?.id) return;
+      setConversations((current) => sortConversations([
+        conversation,
+        ...current.filter((item) => item.id !== conversation.id),
+      ]));
+      void openConversation(conversation.id);
+    };
+    window.addEventListener('omninja:conversation-created', openCreatedConversation);
+    return () => window.removeEventListener('omninja:conversation-created', openCreatedConversation);
+  }, [openConversation]);
+
+  const patchConversation = async (
+    id: string,
+    patch: { title?: string; pinned?: boolean },
+  ) => {
+    const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await response.json().catch(() => ({} as any));
+    if (!response.ok || !data.conversation) return false;
+    setConversations((current) => sortConversations(current.map((conversation) => (
+      conversation.id === id ? { ...conversation, ...data.conversation } : conversation
+    ))));
+    return true;
+  };
+
+  const renameConversation = async (conversation: ConversationSummary) => {
+    const title = window.prompt('Renomear conversa', conversation.title)?.trim();
+    if (!title || title === conversation.title) return;
+    await patchConversation(conversation.id, { title });
+  };
+
+  const togglePinnedConversation = async (conversation: ConversationSummary) => {
+    await patchConversation(conversation.id, { pinned: !conversation.pinnedAt });
+  };
+
+  const deleteConversation = async (conversation: ConversationSummary) => {
+    if (!window.confirm(`Excluir “${conversation.title}”? Esta ação não pode ser desfeita.`)) return;
+    const response = await fetch(`/api/conversations/${encodeURIComponent(conversation.id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) return;
+    setConversations((current) => current.filter((item) => item.id !== conversation.id));
+    if (activeConversationId === conversation.id) newTask();
   };
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
     newTask();
     await loadSession();
+  };
+
+  const toggleSearch = () => {
+    if (searchOpen) {
+      setSearchQuery('');
+      void loadConversations();
+    }
+    setSearchOpen((value) => !value);
   };
 
   const isGuest = Boolean(user?.email?.endsWith('@guest.omnininja.local'));
@@ -271,13 +363,17 @@ export function Workspace() {
           projectsLoading={projectsLoading}
           onNewTask={newTask}
           onConversation={openConversation}
+          activeConversationId={activeConversationId}
+          onRenameConversation={renameConversation}
+          onTogglePinnedConversation={togglePinnedConversation}
+          onDeleteConversation={deleteConversation}
           activeProjectId={activeProjectId}
           onProject={selectProject}
           onCreateProject={createProject}
           onDeleteProject={deleteProject}
           searchOpen={searchOpen}
           searchQuery={searchQuery}
-          onSearchOpen={() => setSearchOpen((value) => !value)}
+          onSearchOpen={toggleSearch}
           onSearchQuery={setSearchQuery}
           onOpenPanel={setActivePanel}
           openAIHealthy={openAIHealthy}
@@ -313,13 +409,17 @@ export function Workspace() {
                 projectsLoading={projectsLoading}
                 onNewTask={newTask}
                 onConversation={openConversation}
+                activeConversationId={activeConversationId}
+                onRenameConversation={renameConversation}
+                onTogglePinnedConversation={togglePinnedConversation}
+                onDeleteConversation={deleteConversation}
                 activeProjectId={activeProjectId}
                 onProject={selectProject}
                 onCreateProject={createProject}
                 onDeleteProject={deleteProject}
                 searchOpen={searchOpen}
                 searchQuery={searchQuery}
-                onSearchOpen={() => setSearchOpen((value) => !value)}
+                onSearchOpen={toggleSearch}
                 onSearchQuery={setSearchQuery}
                 onOpenPanel={(panel) => {
                   setActivePanel(panel);
@@ -656,6 +756,10 @@ function Sidebar({
   projectsLoading,
   onNewTask,
   onConversation,
+  activeConversationId,
+  onRenameConversation,
+  onTogglePinnedConversation,
+  onDeleteConversation,
   activeProjectId,
   onProject,
   onCreateProject,
@@ -678,6 +782,10 @@ function Sidebar({
   projectsLoading: boolean;
   onNewTask: () => void;
   onConversation: (id: string) => void;
+  activeConversationId: string | null;
+  onRenameConversation: (conversation: ConversationSummary) => void;
+  onTogglePinnedConversation: (conversation: ConversationSummary) => void;
+  onDeleteConversation: (conversation: ConversationSummary) => void;
   activeProjectId: string | null;
   onProject: (id: string | null) => void;
   onCreateProject: (name: string) => Promise<boolean>;
@@ -705,9 +813,10 @@ function Sidebar({
 
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase('pt-BR');
   const visibleConversations = conversations.filter((conversation) => (
-    (!activeProjectId || conversation.projectId === activeProjectId) &&
-    (!normalizedSearch || conversation.title.toLocaleLowerCase('pt-BR').includes(normalizedSearch))
+    !activeProjectId || conversation.projectId === activeProjectId
   ));
+  const pinnedConversations = visibleConversations.filter((conversation) => conversation.pinnedAt);
+  const recentConversations = visibleConversations.filter((conversation) => !conversation.pinnedAt);
 
   const submitProject = async () => {
     const name = projectName.trim();
@@ -831,23 +940,44 @@ function Sidebar({
         )}
       </div>
 
-      <div className="mt-5 flex items-center px-3 text-[10px] font-medium text-white/28"><span>Recentes</span></div>
       <div className="omni-scroll mt-1 min-h-0 flex-1 overflow-y-auto">
         {historyLoading ? (
           <div className="space-y-1 px-2">
             {Array.from({ length: 5 }).map((_, index) => <div key={index} className="h-8 rounded-lg omni-shimmer" />)}
           </div>
         ) : visibleConversations.length ? (
-          visibleConversations.slice(0, 20).map((conversation) => (
-            <button
-              key={conversation.id}
-              onClick={() => onConversation(conversation.id)}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] text-white/42 transition hover:bg-white/[0.045] hover:text-white/75"
-            >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-white/25" />
-              <span className="truncate">{conversation.title}</span>
-            </button>
-          ))
+          <>
+            {pinnedConversations.length > 0 && (
+              <div className="mb-3">
+                <div className="flex h-7 items-center px-3 text-[10px] font-medium text-white/28">Fixados</div>
+                {pinnedConversations.map((conversation) => (
+                  <ConversationRow
+                    key={conversation.id}
+                    conversation={conversation}
+                    active={activeConversationId === conversation.id}
+                    onOpen={onConversation}
+                    onRename={onRenameConversation}
+                    onTogglePinned={onTogglePinnedConversation}
+                    onDelete={onDeleteConversation}
+                  />
+                ))}
+              </div>
+            )}
+            <div className="flex h-7 items-center px-3 text-[10px] font-medium text-white/28">
+              {normalizedSearch ? 'Resultados' : 'Recentes'}
+            </div>
+            {(normalizedSearch ? recentConversations : recentConversations.slice(0, 30)).map((conversation) => (
+              <ConversationRow
+                key={conversation.id}
+                conversation={conversation}
+                active={activeConversationId === conversation.id}
+                onOpen={onConversation}
+                onRename={onRenameConversation}
+                onTogglePinned={onTogglePinnedConversation}
+                onDelete={onDeleteConversation}
+              />
+            ))}
+          </>
         ) : (
           <div className="px-3 py-4 text-[10px] text-white/20">
             {normalizedSearch ? 'Nenhuma conversa encontrada.' : 'Nenhuma tarefa ainda.'}
@@ -873,6 +1003,45 @@ function Sidebar({
             {isGuest ? <LogIn className="h-3.5 w-3.5" /> : <LogOut className="h-3.5 w-3.5" />}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ConversationRow({
+  conversation,
+  active,
+  onOpen,
+  onRename,
+  onTogglePinned,
+  onDelete,
+}: {
+  conversation: ConversationSummary;
+  active: boolean;
+  onOpen: (id: string) => void;
+  onRename: (conversation: ConversationSummary) => void;
+  onTogglePinned: (conversation: ConversationSummary) => void;
+  onDelete: (conversation: ConversationSummary) => void;
+}) {
+  return (
+    <div className={`group flex items-center rounded-lg ${active ? 'bg-white/[0.065]' : 'hover:bg-white/[0.045]'}`}>
+      <button
+        onClick={() => onOpen(conversation.id)}
+        className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-[11px] transition ${active ? 'text-white/82' : 'text-white/42 group-hover:text-white/75'}`}
+      >
+        <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-cyan-300/75' : 'text-white/25'}`} />
+        <span className="truncate">{conversation.title}</span>
+      </button>
+      <div className="mr-1 flex shrink-0 items-center opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+        <button onClick={() => onTogglePinned(conversation)} className="rounded-md p-1 text-white/30 hover:bg-white/[0.06] hover:text-white/75" title={conversation.pinnedAt ? 'Desafixar' : 'Fixar'}>
+          {conversation.pinnedAt ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+        </button>
+        <button onClick={() => onRename(conversation)} className="rounded-md p-1 text-white/30 hover:bg-white/[0.06] hover:text-white/75" title="Renomear">
+          <Pencil className="h-3 w-3" />
+        </button>
+        <button onClick={() => onDelete(conversation)} className="rounded-md p-1 text-white/30 hover:bg-white/[0.06] hover:text-red-300" title="Excluir">
+          <Trash2 className="h-3 w-3" />
+        </button>
       </div>
     </div>
   );

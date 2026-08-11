@@ -14,6 +14,7 @@ A auditoria entre recursos oficiais da OpenAI e a implementação está em [`doc
 - **Modelo privado:** OpenAI, com GPT-5.6 como padrão configurável.
 - **Orquestração:** Responses API com ferramentas internas automáticas.
 - **Experiências:** Chat, Work e Codex sob a mesma identidade OMNININJA.
+- **Histórico:** threads contínuas com busca, fixação, renomear, excluir e ramificar.
 - **Pesquisa:** OpenAI Web Search.
 - **Pesquisa profunda:** perfil Work + esforço alto + Web Search com fontes.
 - **Dados/código:** OpenAI Code Interpreter quando apropriado.
